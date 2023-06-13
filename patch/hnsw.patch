@@ -1,0 +1,640 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e2f3d71..ba4d36d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,19 +1,20 @@
+-cmake_minimum_required (VERSION 2.6)
+-project(hnsw_lib
+-    LANGUAGES CXX)
++cmake_minimum_required (VERSION 3.10)
++project(hnsw_lib LANGUAGES CXX)
++
++set(CMAKE_CXX_STANDARD 14)
+ 
+ add_library(hnswlib INTERFACE)
+-target_include_directories(hnswlib INTERFACE .) 
++target_include_directories(hnswlib INTERFACE .)
+ 
+ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+-    set(CMAKE_CXX_STANDARD 11)
++    set(CMAKE_CXX_STANDARD 14)
+ 
+     if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+-      SET( CMAKE_CXX_FLAGS  "-Ofast -DNDEBUG -std=c++11 -DHAVE_CXX0X -openmp -march=native -fpic -ftree-vectorize")
++      SET( CMAKE_CXX_FLAGS  "-Ofast -DNDEBUG -std=c++14 -DHAVE_CXX0X -openmp -march=native -fpic -ftree-vectorize")
+     elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+-      SET( CMAKE_CXX_FLAGS  "-Ofast -lrt -DNDEBUG -std=c++11 -DHAVE_CXX0X -march=native -fpic -w -fopenmp -ftree-vectorize -ftree-vectorizer-verbose=0" )
++      SET( CMAKE_CXX_FLAGS  "-Ofast -lrt -DNDEBUG -std=c++14 -DHAVE_CXX0X -march=native -fpic -w -fopenmp -ftree-vectorize -ftree-vectorizer-verbose=0" )
+     elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+-      SET( CMAKE_CXX_FLAGS  "-Ofast -lrt -DNDEBUG -std=c++11 -DHAVE_CXX0X -openmp -march=native -fpic -w -fopenmp -ftree-vectorize" )
++      SET( CMAKE_CXX_FLAGS  "-Ofast -lrt -DNDEBUG -std=c++14 -DHAVE_CXX0X -openmp -march=native -fpic -w -fopenmp -ftree-vectorize" )
+     endif()
+ 
+     add_executable(test_updates examples/updates_test.cpp)
+diff --git a/examples/searchKnnCloserFirst_test.cpp b/examples/searchKnnCloserFirst_test.cpp
+index cc1392c..d6b5736 100644
+--- a/examples/searchKnnCloserFirst_test.cpp
++++ b/examples/searchKnnCloserFirst_test.cpp
+@@ -4,7 +4,6 @@
+ // of class AlgorithmInterface
+ 
+ #include "../hnswlib/hnswlib.h"
+-
+ #include <assert.h>
+ 
+ #include <vector>
+diff --git a/examples/updates_test.cpp b/examples/updates_test.cpp
+index c877587..678cc5a 100644
+--- a/examples/updates_test.cpp
++++ b/examples/updates_test.cpp
+@@ -137,6 +137,27 @@ test_approx(std::vector<float> &queries, size_t qsize, hnswlib::HierarchicalNSW<
+     return 1.0f * correct / total;
+ }
+ 
++template <typename d_type>
++static void
++test_approx_iterative(std::vector<float>& queries, size_t qsize, hnswlib::HierarchicalNSW<d_type>& appr_alg, size_t vecdim,
++    std::vector<std::unordered_set<hnswlib::labeltype>>& answers, size_t K)
++{
++    for (int i = 0; i < qsize; i++)
++    {
++        hnswlib::ResultIterator<d_type>* iterator = new hnswlib::ResultIterator<d_type>(&appr_alg, (char*)(queries.data() + vecdim * i));
++        for (int j = 0; j < K; j++)
++        {
++            hnswlib::QueryResult<d_type>* result = iterator->Next();
++            if (!result->HasResult())
++                break;
++            std::cout << i << " Result: " << j << " : " << result->GetLabel() << std::endl;
++
++        }
++	iterator->Close();
++	delete iterator;
++    }
++}
++
+ static void
+ test_vs_recall(std::vector<float> &queries, size_t qsize, hnswlib::HierarchicalNSW<float> &appr_alg, size_t vecdim,
+                std::vector<std::unordered_set<hnswlib::labeltype>> &answers, size_t k)
+@@ -177,6 +198,36 @@ test_vs_recall(std::vector<float> &queries, size_t qsize, hnswlib::HierarchicalN
+     }
+ }
+ 
++static void
++test_iterator(std::vector<float>& queries, size_t qsize, hnswlib::HierarchicalNSW<float>& appr_alg, size_t vecdim,
++    std::vector<std::unordered_set<hnswlib::labeltype>>& answers, size_t k)
++{
++    std::vector<size_t> efs = { 1 };
++    for (int i = k; i < 30; i++)
++    {
++        efs.push_back(i);
++    }
++    for (int i = 30; i < 400; i += 10)
++    {
++        efs.push_back(i);
++    }
++    for (int i = 1000; i < 100000; i += 5000)
++    {
++        efs.push_back(i);
++    }
++    std::cout << "ef\trecall\ttime\thops\tdistcomp\n";
++    for (size_t ef : efs)
++    {
++        appr_alg.setEf(ef);
++
++        appr_alg.metric_hops = 0;
++        appr_alg.metric_distance_computations = 0;
++        StopW stopw = StopW();
++
++        test_approx_iterative<float>(queries, qsize, appr_alg, vecdim, answers, k);
++    }
++}
++
+ int main(int argc, char **argv)
+ {
+ 
+@@ -291,8 +342,8 @@ int main(int argc, char **argv)
+     for (int i = 0; i < 3; i++)
+     {
+         std::cout << "Test iteration " << i << "\n";
+-        test_vs_recall(queries_batch, N_queries, appr_alg, d, answers, K);
++        test_iterator(queries_batch, N_queries, appr_alg, d, answers, K);
+     }
+ 
+     return 0;
+-};
+\ No newline at end of file
++};
+diff --git a/hnswlib/bruteforce.h b/hnswlib/bruteforce.h
+index 2426040..fb2b7cc 100644
+--- a/hnswlib/bruteforce.h
++++ b/hnswlib/bruteforce.h
+@@ -86,6 +86,19 @@ namespace hnswlib {
+ 
+         }
+ 
++        std::shared_ptr<WorkSpace<dist_t>> getFreeWorkSpace() const{
++	    std::shared_ptr<WorkSpace<dist_t>> workSpace = std::make_shared<WorkSpace<dist_t>>();
++            workSpace->Reset(nullptr);
++            return workSpace;
++	}
++
++        void searchKnnIterative(const void* query_data, WorkSpace<dist_t>* workspace, QueryResult<dist_t>& query_result, bool isFirst) const{
++            return;
++        }
++
++        void searchIndexIterativeEnd(std::shared_ptr<WorkSpace<dist_t>> workspace) const {
++            return;
++        }
+ 
+         std::priority_queue<std::pair<dist_t, labeltype >>
+         searchKnn(const void *query_data, size_t k) const {
+diff --git a/hnswlib/hnswalg.h b/hnswlib/hnswalg.h
+index e95e0b5..a26f1dd 100644
+--- a/hnswlib/hnswalg.h
++++ b/hnswlib/hnswalg.h
+@@ -52,9 +52,10 @@ namespace hnswlib {
+                 throw std::runtime_error("Not enough memory");
+ 
+             cur_element_count = 0;
+-
+             visited_list_pool_ = new VisitedListPool(1, max_elements);
+ 
++            //workSpacePool_ = std::make_unique<WorkSpacePool<dist_t>>(10);
++
+             //initializations for special treatment of the first node
+             enterpoint_node_ = -1;
+             maxlevel_ = -1;
+@@ -99,6 +100,7 @@ namespace hnswlib {
+         double mult_, revSize_;
+         int maxlevel_;
+ 
++        //std::unique_ptr<WorkSpacePool<dist_t>> workSpacePool_;
+ 
+         VisitedListPool *visited_list_pool_;
+         std::mutex cur_element_count_guard_;
+@@ -241,6 +243,7 @@ namespace hnswlib {
+         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+         searchBaseLayerST(tableint ep_id, const void *data_point, size_t ef) const {
+             VisitedList *vl = visited_list_pool_->getFreeVisitedList();
++
+             vl_type *visited_array = vl->mass;
+             vl_type visited_array_tag = vl->curV;
+ 
+@@ -325,6 +328,65 @@ namespace hnswlib {
+             return top_candidates;
+         }
+ 
++        template <bool has_deletions, bool collect_metrics = false>
++        void searchBaseLayerSTIterative(const void* data_point, WorkSpace<dist_t>* workspace, QueryResult<dist_t>& query_result) const {
++            VisitedList* vl = workspace->vl;
++            vl_type* visited_array = vl->mass;
++            vl_type visited_array_tag = vl->curV;
++            while (!workspace->candidate_set.empty()) {
++                std::pair<dist_t, tableint> current_node_pair = workspace->candidate_set.top();
++                workspace->candidate_set.pop();
++
++                tableint current_node_id = current_node_pair.second;
++                visited_array[current_node_id] = visited_array_tag;
++
++                int* data = (int*)get_linklist0(current_node_id);
++                size_t size = getListCount((linklistsizeint*)data);
++                //                bool cur_node_deleted = isMarkedDeleted(current_node_id);
++                if (collect_metrics) {
++                    metric_hops++;
++                    metric_distance_computations += size;
++                }
++
++#ifdef USE_SSE
++                _mm_prefetch((char*)(visited_array + *(data + 1)), _MM_HINT_T0);
++                _mm_prefetch((char*)(visited_array + *(data + 1) + 64), _MM_HINT_T0);
++                _mm_prefetch(data_level0_memory_ + (*(data + 1)) * size_data_per_element_ + offsetData_, _MM_HINT_T0);
++                _mm_prefetch((char*)(data + 2), _MM_HINT_T0);
++#endif
++
++                for (size_t j = 1; j <= size; j++) {
++                    int candidate_id = *(data + j);
++                    //                    if (candidate_id == 0) continue;
++#ifdef USE_SSE
++                    _mm_prefetch((char*)(visited_array + *(data + j + 1)), _MM_HINT_T0);
++                    _mm_prefetch(data_level0_memory_ + (*(data + j + 1)) * size_data_per_element_ + offsetData_,
++                        _MM_HINT_T0);////////////
++#endif
++                    if (!(visited_array[candidate_id] == visited_array_tag)) {
++                        visited_array[candidate_id] = visited_array_tag;
++
++                        char* currObj1 = (getDataByInternalId(candidate_id));
++                        dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
++
++                        workspace->candidate_set.emplace(-dist, candidate_id);
++#ifdef USE_SSE
++                        _mm_prefetch(data_level0_memory_ + workspace->candidate_set.top().second * size_data_per_element_ +
++                            offsetLevel0_,///////////
++                            _MM_HINT_T0);////////////////////////
++#endif
++                    }
++                }
++                if (!has_deletions || !isMarkedDeleted(current_node_id)) {
++                    dist_t dist = fstdistfunc_(data_point, getDataByInternalId(current_node_id), dist_func_param_);
++                    query_result.SetLabel(getExternalLabel(current_node_id));
++                    query_result.SetDistance(dist);
++                    query_result.SetHasResult(true);
++                    break;
++                }
++            }
++        }
++
+         void getNeighborsByHeuristic2(
+                 std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_candidates,
+         const size_t M) {
+@@ -1167,6 +1229,69 @@ namespace hnswlib {
+             return result;
+         };
+ 
++
++		std::shared_ptr<WorkSpace<dist_t>> getFreeWorkSpace() const {
++			VisitedList* v = visited_list_pool_->getFreeVisitedList();
++			//std::shared_ptr<WorkSpace<dist_t>> workSpace = workSpacePool_->getFreeWorkSpace();
++            std::shared_ptr<WorkSpace<dist_t>> workSpace = std::make_shared<WorkSpace<dist_t>>();
++			workSpace->Reset(v);
++			return workSpace;
++		}
++
++        void searchKnnIterative(const void* query_data, WorkSpace<dist_t>* workspace, QueryResult<dist_t>& query_result, bool isFirst) const {
++            if (cur_element_count == 0) return;
++            tableint currObj;
++			if (isFirst) {
++				currObj = enterpoint_node_;
++				dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
++
++				for (int level = maxlevel_; level > 0; level--) {
++					bool changed = true;
++					while (changed) {
++						changed = false;
++						unsigned int* data;
++
++						data = (unsigned int*)get_linklist(currObj, level);
++						int size = getListCount(data);
++						metric_hops++;
++						metric_distance_computations += size;
++
++						tableint* datal = (tableint*)(data + 1);
++						for (int i = 0; i < size; i++) {
++							tableint cand = datal[i];
++							if (cand < 0 || cand > max_elements_)
++								throw std::runtime_error("cand error");
++							dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
++
++							if (d < curdist) {
++								curdist = d;
++								currObj = cand;
++								changed = true;
++							}
++						}
++					}
++				}
++				dist_t dist = fstdistfunc_(query_data, getDataByInternalId(currObj), dist_func_param_);
++				workspace->candidate_set.emplace(-dist, currObj);
++			}
++
++			if (num_deleted_) {
++				searchBaseLayerSTIterative<true, true>(
++					query_data, workspace, query_result);
++			}
++			else {
++				searchBaseLayerSTIterative<false, true>(
++					query_data, workspace, query_result);
++			}
++
++		}
++
++        void searchIndexIterativeEnd(std::shared_ptr<WorkSpace<dist_t>> workspace) const {
++			visited_list_pool_->releaseVisitedList(workspace->vl);
++            workspace = nullptr;
++			//workSpacePool_->releaseWorkSpace(workspace);
++        }
++
+         void checkIntegrity(){
+             int connections_checked=0;
+             std::vector <int > inbound_connections_num(cur_element_count,0);
+diff --git a/hnswlib/hnswlib.h b/hnswlib/hnswlib.h
+index 58eb760..d6699ee 100644
+--- a/hnswlib/hnswlib.h
++++ b/hnswlib/hnswlib.h
+@@ -26,10 +26,10 @@ __int64 xgetbv(unsigned int x) {
+ #include <x86intrin.h>
+ #include <cpuid.h>
+ #include <stdint.h>
+-void cpuid(int32_t cpuInfo[4], int32_t eax, int32_t ecx) {
++inline void cpuid(int32_t cpuInfo[4], int32_t eax, int32_t ecx) {
+     __cpuid_count(eax, ecx, cpuInfo[0], cpuInfo[1], cpuInfo[2], cpuInfo[3]);
+ }
+-uint64_t xgetbv(unsigned int index) {
++inline uint64_t xgetbv(unsigned int index) {
+     uint32_t eax, edx;
+     __asm__ __volatile__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(index));
+     return ((uint64_t)edx << 32) | eax;
+@@ -51,7 +51,7 @@ uint64_t xgetbv(unsigned int index) {
+ // Adapted from https://github.com/Mysticial/FeatureDetector
+ #define _XCR_XFEATURE_ENABLED_MASK  0
+ 
+-bool AVXCapable() {
++inline bool AVXCapable() {
+     int cpuInfo[4];
+ 
+     // CPU support
+@@ -78,7 +78,7 @@ bool AVXCapable() {
+     return HW_AVX && avxSupported;
+ }
+ 
+-bool AVX512Capable() {
++inline bool AVX512Capable() {
+     if (!AVXCapable()) return false;
+ 
+     int cpuInfo[4];
+@@ -108,13 +108,16 @@ bool AVX512Capable() {
+ }
+ #endif
+ 
++#include "workspace.h"
++#include "query_result.h"
++#include <memory>
+ #include <queue>
+ #include <vector>
+ #include <iostream>
+ #include <string.h>
+ 
+ namespace hnswlib {
+-    typedef size_t labeltype;
++    typedef std::uint64_t labeltype;
+ 
+     template <typename T>
+     class pairGreater {
+@@ -150,17 +153,19 @@ namespace hnswlib {
+ 
+         virtual ~SpaceInterface() {}
+     };
++    
+ 
+     template<typename dist_t>
+     class AlgorithmInterface {
+     public:
+         virtual void addPoint(const void *datapoint, labeltype label)=0;
+         virtual std::priority_queue<std::pair<dist_t, labeltype >> searchKnn(const void *, size_t) const = 0;
+-
++        virtual std::shared_ptr<WorkSpace<dist_t>> getFreeWorkSpace() const = 0;
++        virtual void searchKnnIterative(const void* query_data, WorkSpace<dist_t>* workspace, QueryResult<dist_t>& query_result, bool isFirst) const = 0;
++        virtual void searchIndexIterativeEnd(std::shared_ptr<WorkSpace<dist_t>> workspace) const = 0;
+         // Return k nearest neighbor in the order of closer fist
+         virtual std::vector<std::pair<dist_t, labeltype>>
+             searchKnnCloserFirst(const void* query_data, size_t k) const;
+-
+         virtual void saveIndex(const std::string &location)=0;
+         virtual ~AlgorithmInterface(){
+         }
+@@ -190,3 +195,4 @@ namespace hnswlib {
+ #include "space_ip.h"
+ #include "bruteforce.h"
+ #include "hnswalg.h"
++#include "result_iterator.h"
+diff --git a/hnswlib/query_result.h b/hnswlib/query_result.h
+new file mode 100644
+index 0000000..94177e7
+--- /dev/null
++++ b/hnswlib/query_result.h
+@@ -0,0 +1,47 @@
++#pragma once
++
++#include<cstdint>
++
++namespace hnswlib {
++    typedef std::uint64_t labeltype;
++
++    template<typename dist_t>
++    class QueryResult
++    {
++    public:
++        void SetHasResult(bool hasResult)
++        {
++            hasResult_ = hasResult;
++        }
++
++        bool HasResult()
++        {
++            return hasResult_;
++        }
++
++        void SetLabel(labeltype label)
++        {
++            label_ = label;
++        }
++
++        labeltype GetLabel()
++        {
++            return label_;
++        }
++
++        void SetDistance(dist_t distance)
++        {
++            distance_ = distance;
++        }
++
++        dist_t GetDistance()
++        {
++            return distance_;
++        }
++
++    private:
++        labeltype label_;
++        dist_t distance_;
++        bool hasResult_;
++    };
++} // namespace hnswlib
+\ No newline at end of file
+diff --git a/hnswlib/result_iterator.h b/hnswlib/result_iterator.h
+new file mode 100644
+index 0000000..3b8dedd
+--- /dev/null
++++ b/hnswlib/result_iterator.h
+@@ -0,0 +1,52 @@
++#pragma once
++
++#include <memory>
++
++namespace hnswlib {
++
++	template<typename dist_t>
++	class ResultIterator
++	{
++	public:
++		ResultIterator(const AlgorithmInterface<dist_t>* index, const void* p_target)
++			:m_index_(index),
++			m_target_(p_target)
++		{
++			m_queryResult_ = std::make_unique<QueryResult<dist_t>>();
++			m_workspace_ = index->getFreeWorkSpace();
++			m_isFirstResult_ = true;
++		}
++
++		~ResultIterator() {
++			if (m_workspace_ != nullptr) {
++				m_index_->searchIndexIterativeEnd(m_workspace_);
++				m_workspace_ = nullptr;
++			}
++			m_queryResult_ = nullptr;
++		}
++
++		QueryResult<dist_t>* Next() {
++			m_queryResult_->SetHasResult(false);
++			m_index_->searchKnnIterative(m_target_, m_workspace_.get(), *m_queryResult_, m_isFirstResult_);
++			m_isFirstResult_ = false;
++			return m_queryResult_.get();
++		}
++
++		void Close() {
++			if (m_workspace_ != nullptr) {
++				m_index_->searchIndexIterativeEnd(m_workspace_);
++				m_workspace_ = nullptr;
++			}
++		}
++
++		QueryResult<dist_t>* GetQuery() const {
++			return m_queryResult_.get();
++		}
++	private:
++		const AlgorithmInterface<dist_t>* m_index_;
++		const void* m_target_;
++		std::unique_ptr<QueryResult<dist_t>> m_queryResult_;
++		std::shared_ptr<WorkSpace<dist_t>> m_workspace_;
++		bool m_isFirstResult_;
++	};
++} // namespace hnswlib
+diff --git a/hnswlib/space_ip.h b/hnswlib/space_ip.h
+index b4266f7..02258d4 100644
+--- a/hnswlib/space_ip.h
++++ b/hnswlib/space_ip.h
+@@ -1,6 +1,5 @@
+ #pragma once
+ #include "hnswlib.h"
+-
+ namespace hnswlib {
+ 
+     static float
+@@ -281,10 +280,10 @@ namespace hnswlib {
+ #endif
+ 
+ #if defined(USE_SSE) || defined(USE_AVX) || defined(USE_AVX512)
+-    DISTFUNC<float> InnerProductSIMD16Ext = InnerProductSIMD16ExtSSE;
+-    DISTFUNC<float> InnerProductSIMD4Ext = InnerProductSIMD4ExtSSE;
+-    DISTFUNC<float> InnerProductDistanceSIMD16Ext = InnerProductDistanceSIMD16ExtSSE;
+-    DISTFUNC<float> InnerProductDistanceSIMD4Ext = InnerProductDistanceSIMD4ExtSSE;
++    static DISTFUNC<float> InnerProductSIMD16Ext = InnerProductSIMD16ExtSSE;
++    static DISTFUNC<float> InnerProductSIMD4Ext = InnerProductSIMD4ExtSSE;
++    static DISTFUNC<float> InnerProductDistanceSIMD16Ext = InnerProductDistanceSIMD16ExtSSE;
++    static DISTFUNC<float> InnerProductDistanceSIMD4Ext = InnerProductDistanceSIMD4ExtSSE;
+ 
+     static float
+     InnerProductDistanceSIMD16ExtResiduals(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+diff --git a/hnswlib/space_l2.h b/hnswlib/space_l2.h
+index 4413537..355cc7b 100644
+--- a/hnswlib/space_l2.h
++++ b/hnswlib/space_l2.h
+@@ -144,7 +144,7 @@ namespace hnswlib {
+ #endif
+ 
+ #if defined(USE_SSE) || defined(USE_AVX) || defined(USE_AVX512)
+-    DISTFUNC<float> L2SqrSIMD16Ext = L2SqrSIMD16ExtSSE;
++    static DISTFUNC<float> L2SqrSIMD16Ext = L2SqrSIMD16ExtSSE;
+ 
+     static float
+     L2SqrSIMD16ExtResiduals(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+diff --git a/hnswlib/workspace.h b/hnswlib/workspace.h
+new file mode 100644
+index 0000000..729e648
+--- /dev/null
++++ b/hnswlib/workspace.h
+@@ -0,0 +1,74 @@
++#pragma once
++
++#include "visited_list_pool.h"
++#include <queue>
++#include <utility>
++#include <mutex>
++#include <deque>
++#include <memory>
++
++namespace hnswlib {
++	typedef unsigned int tableint;
++
++	template<typename dist_t>
++	class WorkSpace
++	{
++	public:
++		struct CompareByFirst {
++			constexpr bool operator()(std::pair<dist_t, tableint> const& a,
++				std::pair<dist_t, tableint> const& b) const noexcept {
++				return a.first < b.first;
++			}
++		};
++		void Reset(VisitedList* v)
++		{
++			candidate_set = {};
++			vl = v;
++		}
++		VisitedList* vl;
++		std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
++	};
++
++	/*
++	template<typename dist_t>
++	class WorkSpacePool {
++	public:
++		WorkSpacePool(int initmaxpools) {
++			for (int i = 0; i < initmaxpools; i++)
++				pool_.push_front(std::make_shared<WorkSpace<dist_t>>());
++		}
++
++		~WorkSpacePool() {
++			while (pool_.size()) {
++				std::shared_ptr<WorkSpace<dist_t>> rez = pool_.front();
++				pool_.pop_front();
++				rez = nullptr;
++			}
++		};
++
++		std::shared_ptr<WorkSpace<dist_t>> getFreeWorkSpace() {
++			std::shared_ptr<WorkSpace<dist_t>> rez;
++			{
++				std::unique_lock<std::mutex> lock(poolguard_);
++				if (pool_.size() > 0) {
++					rez = pool_.front();
++					pool_.pop_front();
++				}
++				else {
++					rez = std::make_shared<WorkSpace<dist_t>>();
++				}
++			}
++			return rez;
++		};
++
++		void releaseWorkSpace(std::shared_ptr<WorkSpace<dist_t>> ws) {
++			std::unique_lock<std::mutex> lock(poolguard_);
++			pool_.push_front(ws);
++		};
++
++	private:
++		std::deque<std::shared_ptr<WorkSpace<dist_t>>> pool_;
++		std::mutex poolguard_;
++	};
++	*/
++} // namespace hnswlib
+diff --git a/sift_test.cpp b/sift_test.cpp
+index c6718f5..c08aa3b 100644
+--- a/sift_test.cpp
++++ b/sift_test.cpp
+@@ -299,4 +299,4 @@ void sift_test() {
+ //    /*for(int i=0;i<1000;i++)
+ //        cout << mass[i] << "\n";*/
+ //        //("11", std::ios::binary);
+-}
+\ No newline at end of file
++}
