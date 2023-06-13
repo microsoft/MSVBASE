@@ -1,0 +1,497 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
+diff --git a/src/pl/plpython/plpython.h b/src/pl/plpython/plpython.h
+index 6d981a0a06..e10bc659ef 100644
+--- a/src/pl/plpython/plpython.h
++++ b/src/pl/plpython/plpython.h
+@@ -94,8 +94,8 @@
+ #undef TEXTDOMAIN
+ #define TEXTDOMAIN PG_TEXTDOMAIN("plpython")
+
+-#include <compile.h>
+-#include <eval.h>
++//#include <compile.h>
++//#include <eval.h>
+
+ /* put back our *printf macros ... this must match src/include/port.h */
+ #ifdef vsnprintf
+diff --git a/src/backend/access/index/indexam.c b/src/backend/access/index/indexam.c
+index 6b9750c244..11e6a6f47b 100644
+--- a/src/backend/access/index/indexam.c
++++ b/src/backend/access/index/indexam.c
+@@ -634,6 +634,11 @@ index_getnext_slot(IndexScanDesc scan, ScanDirection direction, TupleTableSlot *
+ 		 * the index.
+ 		 */
+ 		Assert(ItemPointerIsValid(&scan->xs_heaptid));
++		/* store scan->xs_heaptid returned by index_getnext_tid(...) as an
++		 * additional copy, because it may be modified by index_fetch_heap on
++		 * success, and its parent node, e.g. multicolumn-topk, maybe want to
++		 * refer to the original heaptid */
++		scan->xs_heaptid_orig = scan->xs_heaptid;
+ 		if (index_fetch_heap(scan, slot))
+ 			return true;
+ 	}
+diff --git a/src/backend/executor/nodeIndexscan.c b/src/backend/executor/nodeIndexscan.c
+index d0a96a38e0..1872faa135 100644
+--- a/src/backend/executor/nodeIndexscan.c
++++ b/src/backend/executor/nodeIndexscan.c
+@@ -133,7 +133,8 @@ IndexNext(IndexScanState *node)
+ 	while (index_getnext_slot(scandesc, direction, slot))
+ 	{
+ 		CHECK_FOR_INTERRUPTS();
+-
++        estate->is_index_inorder = scandesc->xs_inorder;
++        //elog(INFO, "node is in order : %d", estate->is_index_inorder);
+ 		/*
+ 		 * If the index was lossy, we have to recheck the index quals using
+ 		 * the fetched tuple.
+@@ -270,7 +271,8 @@ next_indextuple:
+ 			node->iss_ReachedEnd = true;
+ 			continue;
+ 		}
+-
++        estate->is_index_inorder = scandesc->xs_inorder;
++        //elog(INFO, "node is in reorder : %d", estate->is_index_inorder);
+ 		/*
+ 		 * If the index was lossy, we have to recheck the index quals and
+ 		 * ORDER BY expressions using the fetched tuple.
+@@ -308,9 +310,9 @@ next_indextuple:
+ 								  scandesc->xs_orderbyvals,
+ 								  scandesc->xs_orderbynulls,
+ 								  node);
+-			if (cmp < 0)
+-				elog(ERROR, "index returned tuples in wrong order");
+-			else if (cmp == 0)
++			//if (cmp < 0)
++			//	elog(ERROR, "index returned tuples in wrong order");
++			if (cmp == 0)
+ 				was_exact = true;
+ 			else
+ 				was_exact = false;
+diff --git a/src/backend/executor/nodeSort.c b/src/backend/executor/nodeSort.c
+index 9d2bfd7ed6..3256b74d88 100644
+--- a/src/backend/executor/nodeSort.c
++++ b/src/backend/executor/nodeSort.c
+@@ -102,15 +102,21 @@ ExecSort(PlanState *pstate)
+ 		/*
+ 		 * Scan the subplan and feed all the tuples to tuplesort.
+ 		 */
+-
++        //int step = 0;
+ 		for (;;)
+ 		{
++			//step++;
+ 			slot = ExecProcNode(outerNode);
+ 
+ 			if (TupIsNull(slot))
+ 				break;
+ 
+ 			tuplesort_puttupleslot(tuplesortstate, slot);
++
++			if (estate->is_index_inorder && tuplesort_heapfull(tuplesortstate)) {
++               // elog(WARNING, "stop in advance, step:%d", step);
++                break;
++            }
+ 		}
+ 
+ 		/*
+diff --git a/src/backend/optimizer/plan/planner.c b/src/backend/optimizer/plan/planner.c
+index a3556a44d6..01faa3fb1e 100644
+--- a/src/backend/optimizer/plan/planner.c
++++ b/src/backend/optimizer/plan/planner.c
+@@ -4967,6 +4967,35 @@ create_ordered_paths(PlannerInfo *root,
+ 		is_sorted = pathkeys_count_contained_in(root->sort_pathkeys,
+ 												input_path->pathkeys, &presorted_keys);
+ 
++        if (is_sorted && limit_tuples > 0)
++        {
++            Path *path = input_path;
++            do
++            {
++                if (path->pathtype == T_IndexScan || path->pathtype == T_IndexOnlyScan)
++                {
++                    if (castNode(IndexPath, path)->indexinfo->amcanrelaxedorderbyop)
++                    {
++                        is_sorted = false;
++                        presorted_keys = 0;
++                        //elog(INFO, "after relaxed, is_sorted=%d", is_sorted);
++                        break;
++                    }
++					else
++					{
++						break;
++					}
++                }
++                else if (path->pathtype == T_Result)
++                {
++                    path = castNode(ProjectionPath, path)->subpath;
++                }
++                else 
++				{
++                    break;
++                }
++            } while (path != NULL);
++        }
+ 		if (is_sorted)
+ 		{
+ 			/* Use the input path as is, but add a projection step if needed */
+diff --git a/src/backend/optimizer/util/plancat.c b/src/backend/optimizer/util/plancat.c
+index 8a0fed8ab6..9297f232a4 100644
+--- a/src/backend/optimizer/util/plancat.c
++++ b/src/backend/optimizer/util/plancat.c
+@@ -269,6 +269,7 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
+ 			/* We copy just the fields we need, not all of rd_indam */
+ 			amroutine = indexRelation->rd_indam;
+ 			info->amcanorderbyop = amroutine->amcanorderbyop;
++			info->amcanrelaxedorderbyop = amroutine->amcanrelaxedorderbyop;
+ 			info->amoptionalkey = amroutine->amoptionalkey;
+ 			info->amsearcharray = amroutine->amsearcharray;
+ 			info->amsearchnulls = amroutine->amsearchnulls;
+diff --git a/src/backend/utils/sort/tuplesort.c b/src/backend/utils/sort/tuplesort.c
+index 98d68a143d..ad8bdcb392 100644
+--- a/src/backend/utils/sort/tuplesort.c
++++ b/src/backend/utils/sort/tuplesort.c
+@@ -1643,6 +1643,11 @@ tuplesort_putheaptuple(Tuplesortstate *state, HeapTuple tup)
+ 	MemoryContextSwitchTo(oldcontext);
+ }
+ 
++bool tuplesort_heapfull(Tuplesortstate *state)
++{
++       return (state->memtupcount >= state->bound);
++}
++
+ /*
+  * Collect one index tuple while collecting input data for sort, building
+  * it from caller-supplied values.
+diff --git a/src/include/access/amapi.h b/src/include/access/amapi.h
+index 4325faa460..000ce32d02 100644
+--- a/src/include/access/amapi.h
++++ b/src/include/access/amapi.h
+@@ -205,6 +205,8 @@ typedef struct IndexAmRoutine
+ 	uint8		amparallelvacuumoptions;
+ 	/* type of data stored in index, or InvalidOid if variable */
+ 	Oid			amkeytype;
++	/* does AM support relaxed ORDER BY result of an operator on indexed column? */
++	bool		amcanrelaxedorderbyop;
+ 
+ 	/*
+ 	 * If you add new properties to either the above or the below lists, then
+diff --git a/src/include/access/relscan.h b/src/include/access/relscan.h
+index 6f0258831f..17871909dd 100644
+--- a/src/include/access/relscan.h
++++ b/src/include/access/relscan.h
+@@ -129,6 +129,9 @@ typedef struct IndexScanDescData
+ 	HeapTuple	xs_hitup;		/* index data returned by AM, as HeapTuple */
+ 	struct TupleDescData *xs_hitupdesc; /* rowtype descriptor of xs_hitup */
+ 
++    ItemPointerData xs_heaptid_orig; /*unmodified original tid result copy for its
++                                      * parent node (e.g. multicolumn topk) to use */
++
+ 	ItemPointerData xs_heaptid; /* result */
+ 	bool		xs_heap_continue;	/* T if must keep walking, potential
+ 									 * further results */
+@@ -146,7 +149,7 @@ typedef struct IndexScanDescData
+ 	Datum	   *xs_orderbyvals;
+ 	bool	   *xs_orderbynulls;
+ 	bool		xs_recheckorderby;
+-
++    bool        xs_inorder;
+ 	/* parallel index scan information, in shared memory */
+ 	struct ParallelIndexScanDescData *parallel_scan;
+ }			IndexScanDescData;
+diff --git a/src/include/nodes/execnodes.h b/src/include/nodes/execnodes.h
+index 3c6fecd2e1..93771d6289 100644
+--- a/src/include/nodes/execnodes.h
++++ b/src/include/nodes/execnodes.h
+@@ -608,6 +608,7 @@ typedef struct EState
+ 	int			es_jit_flags;
+ 	struct JitContext *es_jit;
+ 	struct JitInstrumentation *es_jit_worker_instr;
++	bool       is_index_inorder;
+ } EState;
+ 
+ 
+diff --git a/src/include/nodes/pathnodes.h b/src/include/nodes/pathnodes.h
+index 69150e46eb..dce195e457 100644
+--- a/src/include/nodes/pathnodes.h
++++ b/src/include/nodes/pathnodes.h
+@@ -858,6 +858,7 @@ struct IndexOptInfo
+ 
+ 	/* Remaining fields are copied from the index AM's API struct: */
+ 	bool		amcanorderbyop; /* does AM support order by operator result? */
++	bool        amcanrelaxedorderbyop;
+ 	bool		amoptionalkey;	/* can query omit key for the first column? */
+ 	bool		amsearcharray;	/* can AM handle ScalarArrayOpExpr quals? */
+ 	bool		amsearchnulls;	/* can AM search for NULL/NOT NULL entries? */
+diff --git a/src/include/utils/tuplesort.h b/src/include/utils/tuplesort.h
+index 9e76666fe9..ba12c22b94 100644
+--- a/src/include/utils/tuplesort.h
++++ b/src/include/utils/tuplesort.h
+@@ -225,7 +225,7 @@ extern Tuplesortstate *tuplesort_begin_datum(Oid datumType,
+ 
+ extern void tuplesort_set_bound(Tuplesortstate *state, int64 bound);
+ extern bool tuplesort_used_bound(Tuplesortstate *state);
+-
++extern bool tuplesort_heapfull(Tuplesortstate *state);
+ extern void tuplesort_puttupleslot(Tuplesortstate *state,
+ 								   TupleTableSlot *slot);
+ extern void tuplesort_putheaptuple(Tuplesortstate *state, HeapTuple tup);
+diff --git a/src/backend/tcop/postgres.c b/src/backend/tcop/postgres.c
+index 1342c18c74..484a9f4773 100644
+--- a/src/backend/tcop/postgres.c
++++ b/src/backend/tcop/postgres.c
+@@ -3783,7 +3783,82 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
+ #endif
+ }
+ 
++char* strndup(const char* str, size_t n) {
++	size_t len = strlen(str);
++	size_t copyLen = (n < len) ? n : len;
++	char* copy = (char*)palloc(copyLen + 1);
++	if (copy == NULL)
++	{
++		return NULL;
++	}
++
++	memcpy(copy, str, copyLen);
++	copy[copyLen] = '\0';
++	return copy;
++}
++
++char* lowercase(const char* str)
++{
++	size_t copyLen = strlen(str);
++	char* copy = (char*)palloc(copyLen + 1);
++	if (copy == NULL) {
++		return NULL;
++	}
++	size_t i = 0;
++	size_t j = 0;
++	while (i < copyLen)
++	{
++		if (str[i] == ' ')
++		{
++			copy[j] = ' ';
++			i++;
++			j++;
++			while (str[i] == ' ')
++			{
++				i++;
++			}
++		}
++		else
++		{
++			copy[j] = tolower(str[i]);
++			i++;
++			j++;
++		}
++	}
++	copy[j] = '\0';
++	return copy;
++}
+ 
++void removeSpace(char* str)
++{
++	int start = 0;
++	int end = 0;
++	for (int i = 0; i < strlen(str); i++)
++	{
++		if (str[i] != ' ')
++		{
++			start = i;
++			break;
++		}
++	}
++
++	for (int i = strlen(str) - 1; i >= 0; i--)
++	{
++		if (str[i] != ' ')
++		{
++			end = i;
++			break;
++		}
++	}
++	int i = 0;
++	while (start <= end)
++	{
++		str[i] = str[start];
++		i++;
++		start++;
++	}
++	str[i] = '\0';
++}
+ /* ----------------------------------------------------------------
+  * PostgresMain
+  *	   postgres main loop -- all backends, interactive or otherwise start here
+@@ -4329,6 +4404,162 @@ PostgresMain(int argc, char *argv[],
+ 
+ 					query_string = pq_getmsgstring(&input_message);
+ 					pq_getmsgend(&input_message);
++					/* Parse multi topk statement */
++					//const char* inputSql = "SELECT id FROM table WHERE price>10 
++					//ORDER    BY approximate_sum(    '0.5 *   vector1<->{1,2,3} + vector2<->{5,6,7} + vector3<->{8,9,0}' ) limit 5;";
++					char* sql = lowercase(query_string);
++					ereport(LOG, (errmsg("originial low canse string: %s\n", sql)));
++
++					const char* whereDelimiter = "where";
++					const char* orderByDelimiter = "order by";
++					const char* selectDelimiter = "select";
++					const char* fromDelimiter = "from";
++					const char* approximateSumDelimiter = "approximate_sum(";
++					const char* endDelimiter = ")";
++					const char* limitDelimiter = "limit";
++					const char* semicolonDelimiter = ";";
++					const char* ef = "50";
++					const char* termCond = "50";
++					char* result = (char*)palloc(strlen(sql) * 2);
++					const char* approximateSumStart = strstr(sql, approximateSumDelimiter);
++					if (approximateSumStart != NULL)
++					{
++						char* select;
++						char* table;
++						char* where;
++						char* order[100];
++						size_t orderLength = 0;
++						size_t limit;
++
++						ereport(LOG, (errmsg("approximateSumStart: %s\n", approximateSumStart)));
++						const char* approximateSumEnd = strstr(approximateSumStart, limitDelimiter);
++						char* orderByString = strndup(approximateSumStart + strlen(approximateSumDelimiter), 
++								approximateSumEnd - approximateSumStart - strlen(approximateSumDelimiter));
++						size_t last = strlen(orderByString) - 1;
++						size_t first = 0;
++						size_t second = 0;
++						while (orderByString[first] != '\'')
++						{
++							first++;
++						}
++						first++;
++						while (orderByString[first] != '\0')
++						{
++							orderByString[second] = orderByString[first];
++							first++;
++							second++;
++						}
++						orderByString[second] = '\0';
++						while (orderByString[last] != '\)')
++						{
++							last--;
++						}
++						while (orderByString[last] != '\'')
++						{
++							last--;
++						}
++
++						orderByString[last] = '\0';
++						removeSpace(orderByString);
++						ereport(LOG,(errmsg("orderByString: %s\n", orderByString)));
++
++						char* orderByItemsString = strndup(orderByString, strlen(orderByString));
++						char* token = strtok(orderByItemsString, "+");
++						int i = 0;
++						while (token != NULL) 
++						{
++							orderLength++;
++							order[i] = strndup(token, strlen(token));
++							removeSpace(order[i]);
++							ereport(LOG, (errmsg("order token: %s\n", order[i])));
++							token = strtok(NULL, "+");
++							i++;
++						}
++
++						//id
++						const char* selectStart = strstr(sql, selectDelimiter);
++						const char* selectEnd = strstr(selectStart, fromDelimiter);
++						char* selectString = strndup(selectStart + strlen(selectDelimiter), 
++								selectEnd - selectStart - strlen(selectDelimiter));
++						removeSpace(selectString);
++						ereport(LOG, (errmsg("selectString: %s\n", selectString)));
++
++						const char* tableDelimiter = orderByDelimiter;
++						//price > 10
++						char* whereString = NULL;
++						const char* whereStart = strstr(sql, whereDelimiter);
++						if (whereStart != NULL)
++						{
++							const char* whereEnd = strstr(whereStart, orderByDelimiter);
++							whereString = strndup(whereStart + strlen(whereDelimiter), 
++									whereEnd - whereStart - strlen(whereDelimiter));
++							removeSpace(whereString);
++							tableDelimiter = whereDelimiter;
++							ereport(LOG, (errmsg("whereString: %s\n", whereString)));
++						}
++						//limit 5;
++						const char* limitStart = strstr(sql, limitDelimiter);
++						const char* limitEnd = strstr(limitStart, semicolonDelimiter);
++						char* limitString = strndup(limitStart + strlen(limitDelimiter), limitEnd - limitStart - strlen(limitDelimiter));
++						removeSpace(limitString);
++						ereport(LOG, (errmsg("limitString: %s\n", limitString)));
++ 
++						//table
++						const char* fromStart = strstr(sql, fromDelimiter);
++						const char* fromEnd = strstr(fromStart, tableDelimiter);
++						char* fromString = strndup(fromStart + strlen(fromDelimiter), fromEnd - fromStart - strlen(fromDelimiter));
++						removeSpace(fromString);
++						ereport(LOG, (errmsg("fromString: %s\n", fromString)));
++
++						strcpy(result, "select topk('");
++						strcat(result, fromString);
++						strcat(result, "',");
++						strcat(result, limitString);
++						strcat(result, ", ");
++						strcat(result, ef);
++						strcat(result, ", ");
++						strcat(result, termCond);
++						strcat(result, ", ");
++						strcat(result, "'");
++						strcat(result, selectString);
++						strcat(result, "',");
++						strcat(result, "'");
++						if (whereStart != NULL)
++						{
++							strcat(result, whereString);
++						}
++						strcat(result, "',");
++						strcat(result, "'");
++						strcat(result, orderByString);
++						strcat(result, "',");
++ 
++						for (int i = 0; i < orderLength; i++)
++						{
++							strcat(result, "'");
++							strcat(result, order[i]);
++							strcat(result, "'");
++							if (i < orderLength - 1)
++							{
++								strcat(result, ",");
++							}
++						}
++						strcat(result, ");");
++ 
++						ereport(LOG,(errmsg("result: %s\n", result)));
++						query_string = result;
++
++						pfree(orderByString);
++						pfree(orderByItemsString);
++						for (int i = 0; i < orderLength; i++)
++						{
++							pfree(order[i]);
++						}
++						pfree(selectString);
++						pfree(whereString);
++						pfree(limitString);
++						pfree(fromString);
++						pfree(sql);
++					}
+ 
+ 					if (am_walsender)
+ 					{
+@@ -4339,6 +4570,7 @@ PostgresMain(int argc, char *argv[],
+ 						exec_simple_query(query_string);
+ 
+ 					send_ready_for_query = true;
++					pfree(result);
+ 				}
+ 				break;
+ 

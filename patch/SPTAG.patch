@@ -1,0 +1,2236 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
+diff --git a/AnnService/CoreLibrary.vcxproj b/AnnService/CoreLibrary.vcxproj
+index 78295d0..4f0f2b2 100644
+--- a/AnnService/CoreLibrary.vcxproj
++++ b/AnnService/CoreLibrary.vcxproj
+@@ -164,8 +164,11 @@
+     <ClInclude Include="inc\Core\CommonDataStructure.h" />
+     <ClInclude Include="inc\Core\DefinitionList.h" />
+     <ClInclude Include="inc\Core\MetadataSet.h" />
++    <ClInclude Include="inc\Core\MultiIndexScan.h" />
++    <ClInclude Include="inc\Core\ResultIterator.h" />
+     <ClInclude Include="inc\Core\SearchQuery.h" />
+     <ClInclude Include="inc\Core\SearchResult.h" />
++    <ClInclude Include="inc\Core\SPANNResultIterator.h" />
+     <ClInclude Include="inc\Core\SPANN\Compressor.h" />
+     <ClInclude Include="inc\Core\SPANN\ExtraFullGraphSearcher.h" />
+     <ClInclude Include="inc\Core\SPANN\IExtraSearcher.h" />
+@@ -207,6 +210,8 @@
+     <ClCompile Include="src\Core\SPANN\SPANNIndex.cpp" />
+     <ClCompile Include="src\Core\VectorSet.cpp" />
+     <ClCompile Include="src\Core\MetadataSet.cpp" />
++    <ClCompile Include="src\Core\MultiIndexScan.cpp" />
++    <ClCompile Include="src\Core\ResultIterator.cpp" />
+     <ClCompile Include="src\Core\BKT\BKTIndex.cpp" />
+     <ClCompile Include="src\Core\KDT\KDTIndex.cpp" />
+     <ClCompile Include="src\Core\Common\NeighborhoodGraph.cpp" />
+diff --git a/AnnService/CoreLibrary.vcxproj.filters b/AnnService/CoreLibrary.vcxproj.filters
+index d79d57a..8442790 100644
+--- a/AnnService/CoreLibrary.vcxproj.filters
++++ b/AnnService/CoreLibrary.vcxproj.filters
+@@ -85,6 +85,12 @@
+     <ClInclude Include="inc\Core\MetadataSet.h">
+       <Filter>Header Files\Core</Filter>
+     </ClInclude>
++    <ClInclude Include="inc\Core\MultiIndexScan.h">
++      <Filter>Header Files\Core</Filter>
++    </ClInclude>
++    <ClInclude Include="inc\Core\ResultIterator.h">
++      <Filter>Header Files\Core</Filter>
++    </ClInclude>
+     <ClInclude Include="inc\Core\VectorSet.h">
+       <Filter>Header Files\Core</Filter>
+     </ClInclude>
+@@ -220,6 +226,9 @@
+     <ClInclude Include="inc\Core\Common\SIMDUtils.h">
+       <Filter>Header Files\Core\Common</Filter>
+     </ClInclude>
++    <ClInclude Include="inc\Core\SPANNResultIterator.h">
++      <Filter>Header Files\Core</Filter>
++    </ClInclude>
+   </ItemGroup>
+   <ItemGroup>
+     <ClCompile Include="src\Core\VectorIndex.cpp">
+@@ -237,6 +246,12 @@
+     <ClCompile Include="src\Core\MetadataSet.cpp">
+       <Filter>Source Files\Core</Filter>
+     </ClCompile>
++    <ClCompile Include="src\Core\MultiIndexScan.cpp">
++      <Filter>Source Files\Core</Filter>
++    </ClCompile>
++    <ClCompile Include="src\Core\ResultIterator.cpp">
++      <Filter>Source Files\Core</Filter>
++    </ClCompile>
+     <ClCompile Include="src\Helper\Base64Encode.cpp">
+       <Filter>Source Files\Helper</Filter>
+     </ClCompile>
+diff --git a/AnnService/inc/Core/BKT/Index.h b/AnnService/inc/Core/BKT/Index.h
+index f313134..5eac748 100644
+--- a/AnnService/inc/Core/BKT/Index.h
++++ b/AnnService/inc/Core/BKT/Index.h
+@@ -122,6 +122,9 @@ namespace SPTAG
+                 return 1.0f - xy / (sqrt(xx) * sqrt(yy));
+             }
+             inline float ComputeDistance(const void* pX, const void* pY) const { return m_fComputeDistance((const T*)pX, (const T*)pY, m_pSamples.C()); }
++            inline float GetDistance(const void* target, const SizeType idx) const {
++                return ComputeDistance(target, m_pSamples.At(idx));
++            }
+             inline const void* GetSample(const SizeType idx) const { return (void*)m_pSamples[idx]; }
+             inline bool ContainSample(const SizeType idx) const { return idx >= 0 && idx < m_deletedID.R() && !m_deletedID.Contains(idx); }
+             inline bool NeedRefine() const { return m_deletedID.Count() > (size_t)(GetNumSamples() * m_fDeletePercentageForRefine); }
+@@ -154,6 +157,12 @@ namespace SPTAG
+ 
+             ErrorCode BuildIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, bool p_normalized = false, bool p_shareOwnership = false);
+             ErrorCode SearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const;
++            std::shared_ptr<ResultIterator> GetIterator(const void* p_target, bool p_searchDeleted = false) const;
++            ErrorCode SearchIndexIterativeNext(QueryResult & p_results, std::shared_ptr<COMMON::WorkSpace>&workSpace, bool p_isFirst, bool p_searchDeleted = false) const;
++            ErrorCode SearchIndexIterativeEnd(std::shared_ptr<COMMON::WorkSpace>&workSpace) const;
++            bool SearchIndexIterativeFromNeareast(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& p_space, bool p_isFirst, bool p_searchDeleted = false) const;
++            std::shared_ptr<COMMON::WorkSpace> RentWorkSpace(int batch) const;
++
+             ErrorCode RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const;
+             ErrorCode SearchTree(QueryResult &p_query) const;
+             ErrorCode AddIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, std::shared_ptr<MetadataSet> p_metadataSet, bool p_withMetaIndex = false, bool p_normalized = false);
+@@ -169,6 +178,7 @@ namespace SPTAG
+ 
+         private:
+             void SearchIndex(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space, bool p_searchDeleted, bool p_searchDuplicated) const;
++            void SearchIndexIterative(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space, bool p_isFirst, int batch, bool p_searchDeleted, bool p_searchDuplicated) const;
+         };
+     } // namespace BKT
+ } // namespace SPTAG
+diff --git a/AnnService/inc/Core/Common/BKTree.h b/AnnService/inc/Core/Common/BKTree.h
+index 371ec7f..7bccdc2 100644
+--- a/AnnService/inc/Core/Common/BKTree.h
++++ b/AnnService/inc/Core/Common/BKTree.h
+@@ -8,7 +8,7 @@
+ #include <string>
+ #include <vector>
+ #include <shared_mutex>
+-
++#include <mutex>
+ #include "inc/Core/VectorIndex.h"
+ 
+ #include "CommonUtils.h"
+diff --git a/AnnService/inc/Core/Common/NeighborhoodGraph.h b/AnnService/inc/Core/Common/NeighborhoodGraph.h
+index af47871..55901c4 100644
+--- a/AnnService/inc/Core/Common/NeighborhoodGraph.h
++++ b/AnnService/inc/Core/Common/NeighborhoodGraph.h
+@@ -399,6 +399,15 @@ break;
+                             m_pNeighborhoodGraph[-1 - iter->first][m_iNeighborhoodSize - 1] = -2 - iter->second;
+                         }
+                 }
++                for (auto iter = idmap->begin(); iter != idmap->end(); iter++)
++                {
++                    if (iter->first >= 0)
++                    {
++                        for (DimensionType j = 0; j < m_iNeighborhoodSize; j++) {
++                            m_pNeighborhoodGraph[iter->first][j] = -1;
++                        }
++                    }
++                }
+             }
+ 
+             template <typename T>
+diff --git a/AnnService/inc/Core/Common/WorkSpace.h b/AnnService/inc/Core/Common/WorkSpace.h
+index 2689095..6bf5895 100644
+--- a/AnnService/inc/Core/Common/WorkSpace.h
++++ b/AnnService/inc/Core/Common/WorkSpace.h
+@@ -243,6 +243,14 @@ namespace SPTAG
+                 m_iMaxCheck = maxCheck;
+             }
+ 
++            void ResetResult(int maxCheck, int resultNum)
++            {
++                m_Results.clear(max(maxCheck / 16, resultNum));
++                m_iNumOfContinuousNoBetterPropagation = 0;
++                m_iNumberOfTreeCheckedLeaves = 0;
++                m_iNumberOfCheckedLeaves = 0;
++            }
++
+             inline bool CheckAndSet(SizeType idx)
+             {
+                 return nodeCheckStatus.CheckAndSet(idx);
+diff --git a/AnnService/inc/Core/KDT/Index.h b/AnnService/inc/Core/KDT/Index.h
+index 2eab91d..a2772ca 100644
+--- a/AnnService/inc/Core/KDT/Index.h
++++ b/AnnService/inc/Core/KDT/Index.h
+@@ -120,6 +120,9 @@ namespace SPTAG
+                 return 1.0f - xy / (sqrt(xx) * sqrt(yy));
+             }
+             inline float ComputeDistance(const void* pX, const void* pY) const { return m_fComputeDistance((const T*)pX, (const T*)pY, m_pSamples.C()); }
++            inline float GetDistance(const void* target, const SizeType idx) const {
++                return ComputeDistance(target, m_pSamples.At(idx));
++            }
+             inline const void* GetSample(const SizeType idx) const { return (void*)m_pSamples[idx]; }
+             inline bool ContainSample(const SizeType idx) const { return idx >= 0 && idx < m_deletedID.R() && !m_deletedID.Contains(idx); }
+             inline bool NeedRefine() const { return m_deletedID.Count() > (size_t)(GetNumSamples() * m_fDeletePercentageForRefine); }
+@@ -152,6 +155,12 @@ namespace SPTAG
+ 
+             ErrorCode BuildIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, bool p_normalized = false, bool p_shareOwnership = false);
+             ErrorCode SearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const;
++            std::shared_ptr<ResultIterator> GetIterator(const void* p_target, bool p_searchDeleted = false) const;
++            ErrorCode SearchIndexIterativeNext(QueryResult& p_results, std::shared_ptr<COMMON::WorkSpace>& workSpace, bool p_isFirst, bool p_searchDeleted = false) const;
++            ErrorCode SearchIndexIterativeEnd(std::shared_ptr<COMMON::WorkSpace>& workSpace) const;
++            bool SearchIndexIterativeFromNeareast(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& p_space, bool p_isFirst, bool p_searchDeleted = false) const;
++            std::shared_ptr<COMMON::WorkSpace> RentWorkSpace(int batch) const;
++
+             ErrorCode RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const;
+             ErrorCode SearchTree(QueryResult &p_query) const;
+             ErrorCode AddIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, std::shared_ptr<MetadataSet> p_metadataSet, bool p_withMetaIndex = false, bool p_normalized = false);
+@@ -166,6 +175,10 @@ namespace SPTAG
+             ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_newIndex);
+ 
+         private:
++            void SearchIndexWithDeleted(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space) const;
++            void SearchIndexWithoutDeleted(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space) const;
++            void SearchIndexIterativeWithDeleted(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space) const;
++            void SearchIndexIterativeWithoutDeleted(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space) const;
+             template <typename Q>
+             void SearchIndex(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space, bool p_searchDeleted) const;
+         };
+diff --git a/AnnService/inc/Core/MultiIndexScan.h b/AnnService/inc/Core/MultiIndexScan.h
+new file mode 100644
+index 0000000..ad0815c
+--- /dev/null
++++ b/AnnService/inc/Core/MultiIndexScan.h
+@@ -0,0 +1,80 @@
++// Copyright (c) Microsoft Corporation. All rights reserved.
++// Licensed under the MIT License.
++
++#ifndef _SPTAG_MULTI_INDEX_SCAN_H
++#define _SPTAG_MULTI_INDEX_SCAN_H
++
++#include <memory>
++
++#include <vector>
++#include <utility>
++#include <unordered_set>
++#include <queue>
++#include <stack>
++#include <chrono>
++
++#include "ResultIterator.h"
++#include "VectorIndex.h"
++#include <numeric>
++namespace SPTAG
++{
++    class MultiIndexScan
++    {
++    public:
++        MultiIndexScan();
++        MultiIndexScan(std::vector<std::shared_ptr<VectorIndex>> vecIndices,
++                       std::vector<void*> p_targets,
++                       unsigned int k,
++                       float (*rankFunction)(std::vector<float>),
++                       bool useTimer,
++                       int termCondVal,
++                       int searchLimit
++                       );
++        ~MultiIndexScan();
++        void Init(std::vector<std::shared_ptr<VectorIndex>> vecIndices,
++            std::vector<ByteArray> p_targets,
++            std::vector<float> weight,
++            unsigned int k,
++            bool useTimer,
++            int termCondVal,
++            int searchLimit);
++        bool Next(BasicResult& result);
++        void Close();
++
++    private:
++        std::vector<std::shared_ptr<ResultIterator>> indexIters;
++        std::vector<std::shared_ptr<VectorIndex>> fwdLUTs;
++        std::unordered_set<SizeType> seenSet;
++        std::vector<SPTAG::ByteArray> p_data_array;
++        std::vector<float> weight;
++
++        unsigned int k;
++
++
++        
++        bool useTimer;
++        int termCondVal;
++        int searchLimit;
++        std::chrono::time_point<std::chrono::high_resolution_clock> t_start;
++        
++        float (*func)(std::vector<float>);
++        
++        unsigned int consecutive_drops;
++        
++        bool terminate;
++        using pq_item = std::pair<float, SizeType>;
++        class pq_item_compare
++        {
++        public:
++            bool operator()(const pq_item& lhs, const pq_item& rhs)
++            {
++                return lhs.first < rhs.first;
++            }
++        };
++        std::priority_queue<pq_item, std::vector<pq_item>, pq_item_compare> pq;
++        std::stack<pq_item> outputStk;
++        float WeightedRankFunc(std::vector<float>);
++        
++    };
++} // namespace SPTAG
++#endif
+diff --git a/AnnService/inc/Core/ResultIterator.h b/AnnService/inc/Core/ResultIterator.h
+new file mode 100644
+index 0000000..f7c6bca
+--- /dev/null
++++ b/AnnService/inc/Core/ResultIterator.h
+@@ -0,0 +1,35 @@
++// Copyright (c) Microsoft Corporation. All rights reserved.
++// Licensed under the MIT License.
++
++#ifndef _SPTAG_RESULT_ITERATOR_H
++#define _SPTAG_RESULT_ITERATOR_H
++
++#include<memory>
++
++#include "VectorIndex.h"
++#include "SearchQuery.h"
++#include "Common/WorkSpace.h"
++
++namespace SPTAG
++{
++class ResultIterator
++{
++public:
++	ResultIterator(const VectorIndex* index, const void* p_target,
++		std::shared_ptr<COMMON::WorkSpace> workspace, bool searchDeleted);
++	~ResultIterator();
++	bool Next(BasicResult& result);
++	void Close();
++	QueryResult* GetQuery() const;
++private:
++	const VectorIndex* m_index;
++	const void* m_target;
++	ByteArray m_byte_target;
++	std::unique_ptr<QueryResult> m_queryResult;
++	std::shared_ptr<COMMON::WorkSpace> m_workspace;
++	bool m_searchDeleted;
++	bool m_isFirstResult;
++	int m_batch = 1;
++};
++} // namespace SPTAG
++#endif
+\ No newline at end of file
+diff --git a/AnnService/inc/Core/SPANN/ExtraFullGraphSearcher.h b/AnnService/inc/Core/SPANN/ExtraFullGraphSearcher.h
+index 12a3395..0c5d274 100644
+--- a/AnnService/inc/Core/SPANN/ExtraFullGraphSearcher.h
++++ b/AnnService/inc/Core/SPANN/ExtraFullGraphSearcher.h
+@@ -101,6 +101,22 @@ namespace SPTAG
+         }\
+ }\
+ 
++#define DecompressPostingIterative(){\
++        p_postingListFullData = (char*)p_exWorkSpace->m_decompressBuffer.GetBuffer(); \
++        if (listInfo->listEleCount != 0) { \
++            std::size_t sizePostingListFullData;\
++            try {\
++                sizePostingListFullData = m_pCompressor->Decompress(buffer + listInfo->pageOffset, listInfo->listTotalBytes, p_postingListFullData, listInfo->listEleCount * m_vectorInfoSize, m_enableDictTraining);\
++                if (sizePostingListFullData != listInfo->listEleCount * m_vectorInfoSize) {\
++                LOG(Helper::LogLevel::LL_Error, "PostingList %d decompressed size not match! %zu, %d, \n", listInfo - m_listInfos.data(), sizePostingListFullData, listInfo->listEleCount * m_vectorInfoSize);\
++                }\
++             }\
++            catch (std::runtime_error& err) {\
++                LOG(Helper::LogLevel::LL_Error, "Decompress postingList %d  failed! %s, \n", listInfo - m_listInfos.data(), err.what());\
++            }\
++        }\
++}\
++
+ #define ProcessPosting() \
+         for (int i = 0; i < listInfo->listEleCount; i++) { \
+             uint64_t offsetVectorID, offsetVector;\
+@@ -112,6 +128,24 @@ namespace SPTAG
+             queryResults.AddPoint(vectorID, distance2leaf); \
+         } \
+ 
++#define ProcessPostingOffset() \
++        while (p_exWorkSpace->m_offset < listInfo->listEleCount) { \
++            uint64_t offsetVectorID, offsetVector;\
++            (this->*m_parsePosting)(offsetVectorID, offsetVector, p_exWorkSpace->m_offset, listInfo->listEleCount);\
++            p_exWorkSpace->m_offset++;\
++            int vectorID = *(reinterpret_cast<int*>(p_postingListFullData + offsetVectorID));\
++            if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue; \
++            (this->*m_parseEncoding)(p_index, listInfo, (ValueType*)(p_postingListFullData + offsetVector));\
++            auto distance2leaf = p_index->ComputeDistance(queryResults.GetQuantizedTarget(), p_postingListFullData + offsetVector); \
++            queryResults.AddPoint(vectorID, distance2leaf); \
++            foundResult = true;\
++            break;\
++        } \
++        if (p_exWorkSpace->m_offset == listInfo->listEleCount) { \
++            p_exWorkSpace->m_pi++; \
++            p_exWorkSpace->m_offset = 0; \
++        } \
++
+         template <typename ValueType>
+         class ExtraFullGraphSearcher : public IExtraSearcher
+         {
+@@ -339,6 +373,155 @@ namespace SPTAG
+                 }
+             }
+ 
++            virtual void SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace)
++            {
++                const uint32_t postingListCount = static_cast<uint32_t>(p_exWorkSpace->m_postingIDs.size());
++
++                int diskRead = 0;
++                int diskIO = 0;
++                int listElements = 0;
++
++#if defined(ASYNC_READ) && !defined(BATCH_READ)
++                int unprocessed = 0;
++#endif
++
++                for (uint32_t pi = 0; pi < postingListCount; ++pi)
++                {
++                    auto curPostingID = p_exWorkSpace->m_postingIDs[pi];
++                    ListInfo* listInfo = &(m_listInfos[curPostingID]);
++                    int fileid = m_oneContext ? 0 : curPostingID / m_listPerFile;
++
++#ifndef BATCH_READ
++                    Helper::DiskIO* indexFile = m_indexFiles[fileid].get();
++#endif
++
++                    diskRead += listInfo->listPageCount;
++                    diskIO += 1;
++                    listElements += listInfo->listEleCount;
++
++                    size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
++                    char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[pi]).GetBuffer());
++
++#ifdef ASYNC_READ       
++                    auto& request = p_exWorkSpace->m_diskRequests[pi];
++                    request.m_offset = listInfo->listOffset;
++                    request.m_readSize = totalBytes;
++                    request.m_buffer = buffer;
++                    request.m_status = (fileid << 16) | p_exWorkSpace->m_spaceID;
++                    request.m_payload = (void*)listInfo;
++                    request.m_success = false;
++
++#ifdef BATCH_READ // async batch read
++                    request.m_callback = [this](bool success)
++                    {
++                        //char* buffer = request.m_buffer;
++                        //ListInfo* listInfo = (ListInfo*)(request.m_payload);
++
++                        // decompress posting list
++                        /*
++                        char* p_postingListFullData = buffer + listInfo->pageOffset;
++                        if (m_enableDataCompression)
++                        {
++                            DecompressPosting();
++                        }
++
++                        ProcessPosting();
++                        */
++                    };
++#else // async read
++                    request.m_callback = [&p_exWorkSpace, &request](bool success)
++                    {
++                        p_exWorkSpace->m_processIocp.push(&request);
++                    };
++
++                    ++unprocessed;
++                    if (!(indexFile->ReadFileAsync(request)))
++                    {
++                        LOG(Helper::LogLevel::LL_Error, "Failed to read file!\n");
++                        unprocessed--;
++                    }
++#endif
++#else // sync read
++                    auto numRead = indexFile->ReadBinary(totalBytes, buffer, listInfo->listOffset);
++                    if (numRead != totalBytes) {
++                        LOG(Helper::LogLevel::LL_Error, "File %s read bytes, expected: %zu, acutal: %llu.\n", m_extraFullGraphFile.c_str(), totalBytes, numRead);
++                        throw std::runtime_error("File read mismatch");
++                    }
++                    // decompress posting list
++                    /*
++                    char* p_postingListFullData = buffer + listInfo->pageOffset;
++                    if (m_enableDataCompression)
++                    {
++                        DecompressPosting();
++                    }
++
++                    ProcessPosting();
++                    */
++#endif
++                }
++
++#ifdef ASYNC_READ
++#ifdef BATCH_READ
++                BatchReadFileAsync(m_indexFiles, (p_exWorkSpace->m_diskRequests).data(), postingListCount);
++#else
++                while (unprocessed > 0)
++                {
++                    Helper::AsyncReadRequest* request;
++                    if (!(p_exWorkSpace->m_processIocp.pop(request))) break;
++
++                    --unprocessed;
++                    char* buffer = request->m_buffer;
++                    ListInfo* listInfo = static_cast<ListInfo*>(request->m_payload);
++                    // decompress posting list
++                    /*
++                    char* p_postingListFullData = buffer + listInfo->pageOffset;
++                    if (m_enableDataCompression)
++                    {
++                        DecompressPosting();
++                    }
++
++                    ProcessPosting();
++                    */
++                }
++#endif
++#endif
++            }
++
++            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace,
++                QueryResult& p_queryResults,
++		std::shared_ptr<VectorIndex>& p_index)
++            {
++                COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*) & p_queryResults);
++                bool foundResult = false;
++                while (!foundResult && p_exWorkSpace->m_pi < p_exWorkSpace->m_postingIDs.size()) {
++
++                    char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[p_exWorkSpace->m_pi]).GetBuffer());
++                    ListInfo* listInfo = static_cast<ListInfo*>(p_exWorkSpace->m_diskRequests[p_exWorkSpace->m_pi].m_payload);
++                    // decompress posting list
++                    char* p_postingListFullData = buffer + listInfo->pageOffset;
++                    if (m_enableDataCompression && p_exWorkSpace->m_offset == 0)
++                    {
++                        DecompressPostingIterative();
++                    }
++                    ProcessPostingOffset();
++                }
++                return !(p_exWorkSpace->m_pi == p_exWorkSpace->m_postingIDs.size());
++            }
++
++            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace,
++                 QueryResult& p_query,
++		 std::shared_ptr<VectorIndex> p_index)
++            {
++                if (p_exWorkSpace->m_loadPosting) {
++                    SearchIndexWithoutParsing(p_exWorkSpace);
++                    p_exWorkSpace->m_pi = 0;
++                    p_exWorkSpace->m_offset = 0;
++                    p_exWorkSpace->m_loadPosting = false;
++                }
++
++                return SearchNextInPosting(p_exWorkSpace, p_query, p_index);
++            }
++
+             std::string GetPostingListFullData(
+                 int postingListId,
+                 size_t p_postingListSize,
+diff --git a/AnnService/inc/Core/SPANN/IExtraSearcher.h b/AnnService/inc/Core/SPANN/IExtraSearcher.h
+index 8db3f0f..7278d7c 100644
+--- a/AnnService/inc/Core/SPANN/IExtraSearcher.h
++++ b/AnnService/inc/Core/SPANN/IExtraSearcher.h
+@@ -156,6 +156,12 @@ namespace SPTAG {
+ 
+             int m_spaceID;
+ 
++            uint32_t m_pi;
++
++            int m_offset;
++
++            bool m_loadPosting;
++
+             static std::atomic_int g_spaceCount;
+         };
+ 
+@@ -179,6 +185,16 @@ namespace SPTAG {
+                 std::set<int>* truth = nullptr,
+                 std::map<int, std::set<int>>* found = nullptr) = 0;
+ 
++            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace,
++                QueryResult& p_queryResults,
++                std::shared_ptr<VectorIndex> p_index) = 0;
++
++            virtual void SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace) = 0;
++
++            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace,
++                QueryResult& p_queryResults,
++		std::shared_ptr<VectorIndex>& p_index) = 0;
++
+             virtual bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, 
+                 std::shared_ptr<VectorIndex> p_index, 
+                 Options& p_opt) = 0;
+@@ -188,4 +204,4 @@ namespace SPTAG {
+     } // SPANN
+ } // SPTAG
+ 
+-#endif // _SPTAG_SPANN_IEXTRASEARCHER_H_
+\ No newline at end of file
++#endif // _SPTAG_SPANN_IEXTRASEARCHER_H_
+diff --git a/AnnService/inc/Core/SPANN/Index.h b/AnnService/inc/Core/SPANN/Index.h
+index 1a4f610..4827d80 100644
+--- a/AnnService/inc/Core/SPANN/Index.h
++++ b/AnnService/inc/Core/SPANN/Index.h
+@@ -36,8 +36,12 @@ namespace SPTAG
+         class IniReader;
+     }
+ 
++
+     namespace SPANN
+     {
++        template<typename T>
++	class SPANNResultIterator;
++
+         template<typename T>
+         class Index : public VectorIndex
+         {
+@@ -87,6 +91,10 @@ namespace SPTAG
+                 return 1.0f - xy / (sqrt(xx) * sqrt(yy));
+             }
+             inline float ComputeDistance(const void* pX, const void* pY) const { return m_fComputeDistance((const T*)pX, (const T*)pY, m_options.m_dim); }
++            inline float GetDistance(const void* target, const SizeType idx) const {
++                LOG(Helper::LogLevel::LL_Error, "GetDistance NOT SUPPORT FOR SPANN");
++                return -1;
++            }
+             inline bool ContainSample(const SizeType idx) const { return idx < m_options.m_vectorSize; }
+ 
+             std::shared_ptr<std::vector<std::uint64_t>> BufferSize() const
+@@ -119,7 +127,16 @@ namespace SPTAG
+             ErrorCode BuildIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, bool p_normalized = false, bool p_shareOwnership = false);
+             ErrorCode BuildIndex(bool p_normalized = false);
+             ErrorCode SearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const;
++            std::shared_ptr<ResultIterator> GetIterator(const void* p_target, bool p_searchDeleted = false) const;
++	    std::shared_ptr<SPANNResultIterator<T>> GetSPANNIterator(const void* p_target, bool p_searchDeleted, int batch) const;
++	    ErrorCode SearchIndexIterativeNext(QueryResult& p_results, std::shared_ptr<COMMON::WorkSpace>& workSpace, bool p_isFirst, bool p_searchDeleted = false) const;
++            ErrorCode SearchIndexIterativeEnd(std::shared_ptr<COMMON::WorkSpace>& workSpace) const;
++            ErrorCode SearchIndexIterativeEnd(std::shared_ptr<COMMON::WorkSpace>& workSpace, std::shared_ptr<SPANN::ExtraWorkSpace>& extraWorkspace) const;
++            bool SearchIndexIterativeFromNeareast(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& p_space, bool p_isFirst, bool p_searchDeleted = false) const;
++            std::shared_ptr<COMMON::WorkSpace> RentWorkSpace(int batch) const;
++            ErrorCode SearchIndexIterative(QueryResult& p_headQuery, QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& p_indexWorkspace, std::shared_ptr<ExtraWorkSpace>& p_extraWorkspace, bool first) const;
+             ErrorCode SearchDiskIndex(QueryResult& p_query, SearchStats* p_stats = nullptr) const;
++	    bool SearchDiskIndexIterative(QueryResult& p_headQuery, QueryResult& p_query, std::shared_ptr<ExtraWorkSpace>& extraWorkspace) const;
+             ErrorCode DebugSearchDiskIndex(QueryResult& p_query, int p_subInternalResultNum, int p_internalResultNum,
+                 SearchStats* p_stats = nullptr, std::set<int>* truth = nullptr, std::map<int, std::set<int>>* found = nullptr) const;
+             ErrorCode UpdateIndex();
+diff --git a/AnnService/inc/Core/SPANNResultIterator.h b/AnnService/inc/Core/SPANNResultIterator.h
+new file mode 100644
+index 0000000..6fed988
+--- /dev/null
++++ b/AnnService/inc/Core/SPANNResultIterator.h
+@@ -0,0 +1,83 @@
++// Copyright (c) Microsoft Corporation. All rights reserved.
++// Licensed under the MIT License.
++
++#ifndef _SPTAG_SPANN_RESULT_ITERATOR_H
++#define _SPTAG_SPANN_RESULT_ITERATOR_H
++
++#include<memory>
++
++#include "SPANN/Index.h"
++#include "SearchQuery.h"
++#include "Common/WorkSpace.h"
++#include "SPANN/IExtraSearcher.h"
++
++namespace SPTAG
++{
++	namespace SPANN
++	{
++		template<typename T>
++		class SPANNResultIterator
++		{
++		public:
++			SPANNResultIterator(const Index<T>* p_index, const void* p_target,
++				std::shared_ptr<COMMON::WorkSpace> headWorkspace,
++				std::shared_ptr<SPANN::ExtraWorkSpace> extraWorkspace,
++				int batch)
++				:m_index(p_index),
++			        m_target(p_target),
++			        m_headWorkspace(headWorkspace),
++			        m_extraWorkspace(extraWorkspace),
++			        m_batch(batch)
++		        {
++			        m_headQueryResult = std::make_unique<QueryResult>(p_target, batch, false);
++			        m_queryResult = std::make_unique<QueryResult>(p_target, 1, true);
++			        m_isFirstResult = true;
++		        }
++			~SPANNResultIterator()
++			{
++                                if (m_index != nullptr && m_headWorkspace != nullptr && m_extraWorkspace != nullptr) {
++				    m_index->SearchIndexIterativeEnd(m_headWorkspace, m_extraWorkspace);
++			        }
++			        m_headQueryResult = nullptr;
++			        m_queryResult = nullptr;
++			}
++			bool Next(BasicResult& result)
++			{
++			     m_queryResult->Reset();
++			     m_index->SearchIndexIterative(*m_headQueryResult, *m_queryResult, m_headWorkspace, m_extraWorkspace, m_isFirstResult);
++			     m_isFirstResult = false;
++			     if (m_queryResult->GetResult(0) == nullptr || m_queryResult->GetResult(0)->VID < 0)
++			     {
++				return false;
++			     }
++			     result.VID = m_queryResult->GetResult(0)->VID;
++			     result.Dist = m_queryResult->GetResult(0)->Dist;
++			     result.Meta = m_queryResult->GetResult(0)->Meta;
++			     return true;	
++			}
++			void Close()
++			{
++			   if (m_headWorkspace != nullptr && m_extraWorkspace != nullptr) {
++				m_index->SearchIndexIterativeEnd(m_headWorkspace, m_extraWorkspace);
++				m_headWorkspace = nullptr;
++				m_extraWorkspace = nullptr;
++			   }
++			}
++			QueryResult* GetQuery() const
++			{
++			   return m_queryResult.get();
++			}
++		private:
++			const Index<T>* m_index;
++			const void* m_target;
++			ByteArray m_byteTarget;
++			std::unique_ptr<QueryResult> m_headQueryResult;
++			std::unique_ptr<QueryResult> m_queryResult;
++			std::shared_ptr<COMMON::WorkSpace> m_headWorkspace;
++			std::shared_ptr<SPANN::ExtraWorkSpace> m_extraWorkspace;
++			bool m_isFirstResult;
++			int m_batch;
++		};
++	}// namespace SPTAG
++} // namespace SPTAG
++#endif
+diff --git a/AnnService/inc/Core/SearchQuery.h b/AnnService/inc/Core/SearchQuery.h
+index ede8056..8128234 100644
+--- a/AnnService/inc/Core/SearchQuery.h
++++ b/AnnService/inc/Core/SearchQuery.h
+@@ -113,7 +113,7 @@ public:
+     }
+ 
+ 
+-    inline void* GetQuantizedTarget()
++    inline const void* GetQuantizedTarget()
+     {
+         return m_quantizedTarget;
+     }
+diff --git a/AnnService/inc/Core/VectorIndex.h b/AnnService/inc/Core/VectorIndex.h
+index 1989625..89d0d38 100644
+--- a/AnnService/inc/Core/VectorIndex.h
++++ b/AnnService/inc/Core/VectorIndex.h
+@@ -5,6 +5,7 @@
+ #define _SPTAG_VECTORINDEX_H_
+ 
+ #include "Common.h"
++#include "Common/WorkSpace.h"
+ #include "SearchQuery.h"
+ #include "VectorSet.h"
+ #include "MetadataSet.h"
+@@ -20,6 +21,7 @@ class IAbortOperation
+ public:
+     virtual bool ShouldAbort() = 0;
+ };
++class ResultIterator;
+ 
+ class VectorIndex
+ {
+@@ -36,6 +38,16 @@ public:
+ 
+     virtual ErrorCode SearchIndex(QueryResult& p_results, bool p_searchDeleted = false) const = 0;
+     
++    virtual std::shared_ptr<ResultIterator> GetIterator(const void* p_target, bool p_searchDeleted = false) const = 0;
++
++    virtual ErrorCode SearchIndexIterativeNext(QueryResult& p_results, std::shared_ptr<COMMON::WorkSpace>& workSpace, bool p_isFirst, bool p_searchDeleted = false) const = 0;
++
++    virtual ErrorCode SearchIndexIterativeEnd(std::shared_ptr<COMMON::WorkSpace>& workSpace) const = 0;
++
++    virtual bool SearchIndexIterativeFromNeareast(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& p_space, bool p_isFirst, bool p_searchDeleted = false) const = 0;
++
++    virtual std::shared_ptr<COMMON::WorkSpace> RentWorkSpace(int batch) const = 0;
++
+     virtual ErrorCode RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const = 0;
+ 
+     virtual ErrorCode SearchTree(QueryResult &p_query) const = 0;
+@@ -44,6 +56,7 @@ public:
+ 
+     virtual float AccurateDistance(const void* pX, const void* pY) const = 0;
+     virtual float ComputeDistance(const void* pX, const void* pY) const = 0;
++    virtual float GetDistance(const void* target, const SizeType idx) const = 0;
+     virtual const void* GetSample(const SizeType idx) const = 0;
+     virtual bool ContainSample(const SizeType idx) const = 0;
+     virtual bool NeedRefine() const = 0;
+diff --git a/AnnService/inc/Helper/ConcurrentSet.h b/AnnService/inc/Helper/ConcurrentSet.h
+index 1dfdf44..c436019 100644
+--- a/AnnService/inc/Helper/ConcurrentSet.h
++++ b/AnnService/inc/Helper/ConcurrentSet.h
+@@ -5,6 +5,7 @@
+ #define _SPTAG_HELPER_CONCURRENTSET_H_
+ 
+ #ifndef _MSC_VER
++#include <mutex>
+ #include <shared_mutex>
+ #include <unordered_set>
+ #include <unordered_map>
+diff --git a/AnnService/src/Core/BKT/BKTIndex.cpp b/AnnService/src/Core/BKT/BKTIndex.cpp
+index f9ef95f..6f4f306 100644
+--- a/AnnService/src/Core/BKT/BKTIndex.cpp
++++ b/AnnService/src/Core/BKT/BKTIndex.cpp
+@@ -3,6 +3,7 @@
+ 
+ #include "inc/Core/BKT/Index.h"
+ #include <chrono>
++#include "inc/Core/ResultIterator.h"
+ 
+ #pragma warning(disable:4242)  // '=' : conversion from 'int' to 'short', possible loss of data
+ #pragma warning(disable:4244)  // '=' : conversion from 'int' to 'short', possible loss of data
+@@ -238,6 +239,56 @@ namespace SPTAG
+         } \
+         p_query.SortResult(); \
+ 
++#define SearchIterative(CheckDeleted, p_isFirst, batch) \
++        if (p_isFirst) { \
++            m_pTrees.InitSearchTrees(m_pSamples, m_fComputeDistance, p_query, p_space); \
++            m_pTrees.SearchTrees(m_pSamples, m_fComputeDistance, p_query, p_space, m_iNumberOfInitialDynamicPivots); \
++        } \
++        const DimensionType checkPos = m_pGraph.m_iNeighborhoodSize - 1; \
++        int count = 0; \
++        while (!p_space.m_NGQueue.empty()) { \
++            NodeDistPair gnode = p_space.m_NGQueue.pop(); \
++            SizeType tmpNode = gnode.node; \
++            const SizeType *node = m_pGraph[tmpNode]; \
++            _mm_prefetch((const char *)node, _MM_HINT_T0); \
++            for (DimensionType i = 0; i <= checkPos; i++) { \
++                _mm_prefetch((const char *)(m_pSamples)[node[i]], _MM_HINT_T0); \
++            } \
++            CheckDeleted \
++                { \
++                    p_query.AddPoint(tmpNode, gnode.distance); \
++                    count++; \
++                } \
++            SizeType checkNode = node[checkPos]; \
++            if (checkNode < -1) { \
++                const COMMON::BKTNode& tnode = m_pTrees[-2 - checkNode]; \
++                SizeType i = -tnode.childStart; \
++                while (i < tnode.childEnd) { \
++                    tmpNode = m_pTrees[i].centerid; \
++                    CheckDeleted \
++                    { \
++                        float distance2leaf = m_fComputeDistance(p_query.GetQuantizedTarget(), (m_pSamples)[tmpNode], GetFeatureDim()); \
++                        p_space.m_NGQueue.insert(NodeDistPair(tmpNode, distance2leaf)); \
++                    } \
++                    i++; \
++                }\
++            } \
++            for (DimensionType i = 0; i <= checkPos; i++) { \
++                SizeType nn_index = node[i]; \
++                if (nn_index < 0) break; \
++                if (p_space.CheckAndSet(nn_index)) continue; \
++                float distance2leaf = m_fComputeDistance(p_query.GetQuantizedTarget(), (m_pSamples)[nn_index], GetFeatureDim()); \
++                p_space.m_iNumberOfCheckedLeaves++; \
++                p_space.m_NGQueue.insert(NodeDistPair(nn_index, distance2leaf)); \
++            } \
++            if (p_space.m_NGQueue.Top().distance > p_space.m_SPTQueue.Top().distance) { \
++                m_pTrees.SearchTrees(m_pSamples, m_fComputeDistance, p_query, p_space, m_iNumberOfOtherDynamicPivots + p_space.m_iNumberOfCheckedLeaves); \
++            } \
++            if (count >= batch) {\
++                break; \
++            } \
++        } \
++        p_query.SortResult(); \
+ 
+         template <typename T>
+         void Index<T>::SearchIndex(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space, bool p_searchDeleted, bool p_searchDuplicated) const
+@@ -271,6 +322,71 @@ namespace SPTAG
+             }
+         }
+ 
++        template <typename T>
++        void Index<T>::SearchIndexIterative(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space, bool p_isFirst, 
++            int batch, bool p_searchDeleted, bool p_searchDuplicated) const
++        {
++            if (m_deletedID.Count() == 0 || p_searchDeleted)
++            {
++                SearchIterative(;, p_isFirst, batch)
++            }
++            else
++            {
++                SearchIterative(if (!m_deletedID.Contains(tmpNode)), p_isFirst, batch)
++            }
++        }
++
++        template <typename T>
++        bool Index<T>::SearchIndexIterativeFromNeareast(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& p_space, bool p_isFirst, bool p_searchDeleted) const
++        {
++            if (p_isFirst) 
++            {
++		        p_space->ResetResult(m_iMaxCheck, p_query.GetResultNum());
++                SearchIndex(*((COMMON::QueryResultSet<T>*) & p_query), *p_space, p_searchDeleted, true);
++                // make sure other node can be traversed after topk found 
++		p_space->nodeCheckStatus.clear();
++                for (int i = 0; i < p_query.GetResultNum(); ++i)
++                {
++                    SizeType result = p_query.GetResult(i)->VID;
++                    if (result < 0)
++                        continue;
++                    p_space->nodeCheckStatus.CheckAndSet(result);
++                    const DimensionType checkPos = m_pGraph.m_iNeighborhoodSize - 1;
++                    const SizeType* node = m_pGraph[result];
++                    _mm_prefetch((const char*)node, _MM_HINT_T0);
++                    for (DimensionType i = 0; i <= checkPos; i++) {
++                        _mm_prefetch((const char*)(m_pSamples)[node[i]], _MM_HINT_T0);
++                    }
++                    for (DimensionType i = 0; i <= checkPos; i++) {
++                        SizeType nn_index = node[i];
++                        if (nn_index < 0) break;
++                        if (p_space->CheckAndSet(nn_index)) continue;
++                        float distance2leaf = m_fComputeDistance((const T*)p_query.GetQuantizedTarget(), (m_pSamples)[nn_index], GetFeatureDim());
++                        p_space->m_NGQueue.insert(NodeDistPair(nn_index, distance2leaf));
++                    }
++                }
++		
++            }
++            else 
++            {
++                p_space->ResetResult(m_iMaxCheck, p_query.GetResultNum());
++                SearchIndexIterative(*((COMMON::QueryResultSet<T>*) & p_query), *p_space, p_isFirst, p_query.GetResultNum(), p_searchDeleted, true);
++            }
++            if (p_query.GetResult(0) == nullptr || p_query.GetResult(0)->VID < 0)
++            {
++                return false;
++            }
++            if (p_query.WithMeta() && nullptr != m_pMetadata)
++            {
++                for (int i = 0; i < p_query.GetResultNum(); ++i)
++                {
++                    SizeType result = p_query.GetResult(i)->VID;
++                    p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
++                }
++            }
++            return true;
++        }
++
+         template<typename T>
+         ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool p_searchDeleted) const
+         {
+@@ -282,7 +398,38 @@ namespace SPTAG
+             SearchIndex(*((COMMON::QueryResultSet<T>*)&p_query), *workSpace, p_searchDeleted, true);
+ 
+             m_workSpacePool->Return(workSpace);
++            
++            if (p_query.WithMeta() && nullptr != m_pMetadata)
++            {
++                for (int i = 0; i < p_query.GetResultNum(); ++i)
++                {
++                    SizeType result = p_query.GetResult(i)->VID;
++                    p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
++                }
++            }
++            return ErrorCode::Success;
++        }
++
++        template<typename T>
++        std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void* p_target, bool p_searchDeleted) const
++        {
++            if (!m_bReady) return nullptr;
++            auto workSpace = m_workSpacePool->Rent();
++            // TODO(qiazh): optimize batch instead of 1
++            workSpace->Reset(m_iMaxCheck, 1);
++            std::shared_ptr<ResultIterator> resultIterator =
++                std::make_shared<ResultIterator>(this, p_target, workSpace, p_searchDeleted);
++            return resultIterator;
++        }
+ 
++        template<typename T>
++        ErrorCode Index<T>::SearchIndexIterativeNext(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& workSpace, bool p_isFirst, bool p_searchDeleted) const
++        {
++            if (!m_bReady) return ErrorCode::EmptyIndex;
++            // TODO(qiazh): optimize batch instead of 1
++            workSpace->ResetResult(m_iMaxCheck, 1);
++            SearchIndexIterative(*((COMMON::QueryResultSet<T>*) & p_query), *workSpace, p_isFirst, 1, p_searchDeleted, true);
++            
+             if (p_query.WithMeta() && nullptr != m_pMetadata)
+             {
+                 for (int i = 0; i < p_query.GetResultNum(); ++i)
+@@ -294,6 +441,23 @@ namespace SPTAG
+             return ErrorCode::Success;
+         }
+ 
++        template<typename T>
++        ErrorCode Index<T>::SearchIndexIterativeEnd(std::shared_ptr<COMMON::WorkSpace>& space) const
++        {
++            if (!m_bReady) return ErrorCode::EmptyIndex;
++            if (nullptr != space)
++                m_workSpacePool->Return(space);
++            return ErrorCode::Success;
++        }
++
++        template<typename T>
++        std::shared_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace(int batch) const
++        {
++            auto workSpace = m_workSpacePool->Rent();
++            workSpace->Reset(m_iMaxCheck, batch);
++            return workSpace;
++        }
++
+         template<typename T>
+         ErrorCode Index<T>::RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted) const
+         {
+diff --git a/AnnService/src/Core/KDT/KDTIndex.cpp b/AnnService/src/Core/KDT/KDTIndex.cpp
+index 1431e26..0b2e11b 100644
+--- a/AnnService/src/Core/KDT/KDTIndex.cpp
++++ b/AnnService/src/Core/KDT/KDTIndex.cpp
+@@ -3,6 +3,7 @@
+ 
+ #include "inc/Core/KDT/Index.h"
+ #include <chrono>
++#include "inc/Core/ResultIterator.h"
+ 
+ #pragma warning(disable:4242)  // '=' : conversion from 'int' to 'short', possible loss of data
+ #pragma warning(disable:4244)  // '=' : conversion from 'int' to 'short', possible loss of data
+@@ -177,6 +178,20 @@ namespace SPTAG
+             }
+         }
+ 
++        template <typename T>
++        void Index<T>::SearchIndexIterativeWithoutDeleted(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space) const
++        {
++            //Search(if (!m_deletedID.Contains(gnode.node)))
++            LOG(Helper::LogLevel::LL_Error, "ITERATIVE NOT SUPPORT FOR KDT");
++        }
++
++        template <typename T>
++        void Index<T>::SearchIndexIterativeWithDeleted(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space) const
++        {
++            //Search(;)
++            LOG(Helper::LogLevel::LL_Error, "ITERATIVE NOT SUPPORT FOR KDT");
++        }
++
+         template<typename T>
+         ErrorCode
+             Index<T>::SearchIndex(QueryResult &p_query, bool p_searchDeleted) const
+@@ -224,6 +239,64 @@ case VectorValueType::Name: \
+             return ErrorCode::Success;
+         }
+ 
++        template<typename T>
++        std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void* p_target, bool p_searchDeleted) const
++        {
++            if (!m_bReady) return nullptr;
++            auto workSpace = m_workSpacePool->Rent();
++            // TODO(qiazh): optimize batch instead of 1
++            workSpace->Reset(m_iMaxCheck, 1);
++
++            std::shared_ptr<ResultIterator> resultIterator =
++                std::make_shared<ResultIterator>(this, p_target, workSpace, p_searchDeleted);
++
++            return resultIterator;
++        }
++
++        template<typename T>
++        ErrorCode Index<T>::SearchIndexIterativeNext(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& workSpace, bool p_isFirst, bool p_searchDeleted) const
++        {
++            if (!m_bReady) return ErrorCode::EmptyIndex;
++            // TODO(qiazh): optimize batch instead of 1
++            workSpace->ResetResult(m_iMaxCheck, 1);
++            if (m_deletedID.Count() == 0 || p_searchDeleted)
++                SearchIndexIterativeWithDeleted(*((COMMON::QueryResultSet<T>*) & p_query), *workSpace);
++            else
++                SearchIndexIterativeWithoutDeleted(*((COMMON::QueryResultSet<T>*) & p_query), *workSpace);
++            if (p_query.WithMeta() && nullptr != m_pMetadata)
++            {
++                for (int i = 0; i < p_query.GetResultNum(); ++i)
++                {
++                    SizeType result = p_query.GetResult(i)->VID;
++                    p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
++                }
++            }
++            return ErrorCode::Success;
++        }
++
++        template<typename T>
++        ErrorCode Index<T>::SearchIndexIterativeEnd(std::shared_ptr<COMMON::WorkSpace>& space) const
++        {
++            if (!m_bReady) return ErrorCode::EmptyIndex;
++            m_workSpacePool->Return(space);
++            return ErrorCode::Success;
++        }
++
++        template <typename T>
++        bool Index<T>::SearchIndexIterativeFromNeareast(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& p_space, bool p_isFirst, bool p_searchDeleted) const
++        {
++            LOG(Helper::LogLevel::LL_Error, "SearchIndexIterativeFromNeareast NOT SUPPORT FOR KDT");
++            return false;
++        }
++
++        template<typename T>
++        std::shared_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace(int batch) const
++        {
++            auto workSpace = m_workSpacePool->Rent();
++            workSpace->ResetResult(m_iMaxCheck, batch);
++            return workSpace;
++        }
++
+         template <typename T>
+         ErrorCode Index<T>::RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted) const
+         {
+diff --git a/AnnService/src/Core/MultiIndexScan.cpp b/AnnService/src/Core/MultiIndexScan.cpp
+new file mode 100644
+index 0000000..26b960a
+--- /dev/null
++++ b/AnnService/src/Core/MultiIndexScan.cpp
+@@ -0,0 +1,188 @@
++#include "inc/Core/MultiIndexScan.h"
++
++namespace SPTAG
++{
++    MultiIndexScan::MultiIndexScan() {}
++    MultiIndexScan::MultiIndexScan(std::vector<std::shared_ptr<VectorIndex>> vectorIndices,
++                                   std::vector<void*> p_targets,
++                                   unsigned int k,
++                                   float (*rankFunction)(std::vector<float>),
++                                   bool useTimer,
++                                   int termCondVal,
++                                   int searchLimit
++                                   ){
++        // copy parameters
++        this->fwdLUTs           = std::vector<std::shared_ptr<VectorIndex>>(vectorIndices);
++        this->k                 = k;
++        this->func              = rankFunction;
++        // terminate related initialization
++        this->useTimer          = useTimer;
++        this->termCondVal       = termCondVal;
++        this->searchLimit       = searchLimit;
++        this->t_start           = std::chrono::high_resolution_clock::now();
++        this->consecutive_drops = 0;
++        // internal states
++        // topK status
++        this->pq                = std::priority_queue<pq_item, std::vector<pq_item>, pq_item_compare>();
++        this->seenSet           = std::unordered_set<SizeType>();
++        // output dataStrucure
++        this->outputStk         = std::stack<pq_item>();
++        this->terminate         = false;
++
++        for ( int i = 0; i < fwdLUTs.size(); i++ ){
++            indexIters.push_back(vectorIndices[i]->GetIterator(p_targets[i], true));
++        }
++        printf("(%lu, %lu, %lu)\n", fwdLUTs.size(), p_targets.size(), indexIters.size() );
++    }
++    float rankFunc(std::vector<float> in) {
++        return std::accumulate(in.begin(), in.end(), 0);
++    }
++
++    float MultiIndexScan::WeightedRankFunc(std::vector<float> in) {
++        float result = 0;
++        for (int i = 0; i < in.size(); i++)
++        {
++            result += in[i] * weight[i];
++        }
++        return result;
++    }
++
++    void MultiIndexScan::Init(std::vector<std::shared_ptr<VectorIndex>> vectorIndices,
++        std::vector<ByteArray> p_targets,
++        std::vector<float> weight,
++        unsigned int k,
++        bool useTimer,
++        int termCondVal,
++        int searchLimit)
++    {
++        this->fwdLUTs = vectorIndices;
++        this->k = k;
++        this->func = nullptr;
++        this->weight = weight;
++        // terminate related initialization
++        this->useTimer = useTimer;
++        this->termCondVal = termCondVal;
++        this->searchLimit = searchLimit;
++        this->t_start = std::chrono::high_resolution_clock::now();
++        this->consecutive_drops = 0;
++        // internal states
++        // topK status
++        this->pq = std::priority_queue<pq_item, std::vector<pq_item>, pq_item_compare>();
++        this->seenSet = std::unordered_set<SizeType>();
++        // output dataStrucure
++        this->outputStk = std::stack<pq_item>();
++        this->terminate = false;
++
++        for (int i = 0; i < fwdLUTs.size(); i++) {
++            p_data_array.push_back(p_targets[i]);
++            indexIters.push_back(vectorIndices[i]->GetIterator(p_data_array[i].Data(), true));
++        }
++        printf("(%lu, %lu, %lu)\n", fwdLUTs.size(), p_targets.size(), indexIters.size());
++    }
++
++    MultiIndexScan::~MultiIndexScan(){
++        Close();
++    }
++
++	bool MultiIndexScan::Next(BasicResult& result)
++	{
++        int numCols = indexIters.size();
++        while ( !terminate ) {
++            
++            for ( int i = 0 ; i < numCols; i++ ) {
++                auto result_iter = indexIters[i];
++               // printf("probing index %d, %s\n", i, fwdLUTs[i]->GetIndexName().c_str());
++                BasicResult curr_result;
++                if ( !(result_iter->Next(curr_result)) ){
++                    printf("index %d no more result!! Terminating\n", i);                    
++                    terminate = true;
++                    break;
++                }
++
++                auto vid  = curr_result.VID;
++                auto dist = curr_result.Dist;
++                //we ignore meta for now:: auto meta = curr_result.Meta;
++
++               // printf("vid = %lu, dist = %f from index %d\n", vid, dist, i);
++
++                // insert into heap only if it has NOT been seen
++                if ( seenSet.find(vid) == seenSet.end() ){
++                    
++                    std::vector<float> dists(numCols, 0);
++                    dists[i] = dist;
++                    
++                    // lookup scores using foward index
++                    for ( int j = 0; j < numCols; j++ ){
++                        if ( i != j ){
++                            dists[j] = fwdLUTs[j]->GetDistance(indexIters[j]->GetQuery()->GetTarget(), vid);
++                        }
++                    }
++
++                    // using UDF to calculate the score
++                    float score;
++                    if (func == nullptr)
++                    {
++                        score = WeightedRankFunc(dists);
++                    }
++                    else
++                    {
++                        score = func(dists);
++                    }
++
++                 //   printf("vid = %d, not seen! score = %f\n", vid, score);
++
++                    // insert into heap only if it is smaller than the largest score
++                    // in our ANN case, we keep the k smallest score/dists
++                    if ( pq.size() == k && pq.top().first <= score ) {
++                        //printf("%f >= largest score in heap %f, drop", score, pq.top().first);
++                        consecutive_drops++;
++                    } else {
++                        consecutive_drops=0;
++                        if ( pq.size() == k ) pq.pop(); // the largest score is squeezed out by the current score
++                        pq.push(std::make_pair(score, vid));
++                    }
++
++                    // insert it into our seen set;
++                    seenSet.insert(vid);
++                }
++            }
++            
++            // checkout terminate condition and check if we need to start stream out output
++            // why we check term cond outside for loop? because we don't want to check that often~
++            if ( useTimer ) {
++                auto t_end = std::chrono::high_resolution_clock::now();
++                terminate = (std::chrono::duration<double, std::milli>(t_end-t_start).count() >= termCondVal);
++            } else if ( !useTimer && consecutive_drops >= termCondVal){
++                terminate = true;
++            } else if ( seenSet.size() >= searchLimit){
++                terminate = true;
++            }
++        }
++        // put back the output into the correct order, i.e. smallest score first
++        if ( pq.size() > 0 ){
++            while ( !pq.empty() ){
++                outputStk.push(pq.top());
++                pq.pop();
++            }
++        }
++
++        // if no outputs
++        if ( outputStk.size() == 0 ) return false;
++
++        // pop-out outputs
++        result.VID = outputStk.top().second;
++        result.Dist = outputStk.top().first;        
++        outputStk.pop();
++        
++        return true;
++	}
++
++	// Add end into destructor.
++	void MultiIndexScan::Close()
++	{
++        for ( auto resultIter : indexIters ){
++            resultIter->Close();
++        }
++	}
++
++} // namespace SPTAG
+diff --git a/AnnService/src/Core/ResultIterator.cpp b/AnnService/src/Core/ResultIterator.cpp
+new file mode 100644
+index 0000000..6075334
+--- /dev/null
++++ b/AnnService/src/Core/ResultIterator.cpp
+@@ -0,0 +1,55 @@
++#include "inc/Core/ResultIterator.h"
++
++namespace SPTAG
++{
++	ResultIterator::ResultIterator(const VectorIndex* index, const void* p_target,
++		std::shared_ptr<COMMON::WorkSpace> workspace, bool searchDeleted)
++		:m_index(index),
++		m_target(p_target),
++		m_workspace(workspace),
++		m_searchDeleted(searchDeleted)
++	{
++		// TODO(qiazh): optimize batch instead of 1
++		m_queryResult = std::make_unique<QueryResult>(p_target, 1, true);
++		m_isFirstResult = true;
++	}
++
++	ResultIterator::~ResultIterator()
++	{
++		if (m_index != nullptr && m_workspace != nullptr) {
++			m_index->SearchIndexIterativeEnd(m_workspace);
++		}
++		m_queryResult = nullptr;
++	}
++
++	bool ResultIterator::Next(BasicResult& result)
++	{
++		m_queryResult->Reset();
++		m_index->SearchIndexIterativeNext(*m_queryResult, m_workspace, m_isFirstResult, m_searchDeleted);
++		m_isFirstResult = false;
++		if (m_queryResult->GetResult(0) == nullptr || m_queryResult->GetResult(0)->VID < 0)
++		{
++			return false;
++		}
++		result.VID = m_queryResult->GetResult(0)->VID;
++		result.Dist = m_queryResult->GetResult(0)->Dist;
++		result.Meta = m_queryResult->GetResult(0)->Meta;
++		return true;
++	}
++
++	// Add end into destructor.
++	void ResultIterator::Close()
++	{
++		if (m_workspace != nullptr) {
++			m_index->SearchIndexIterativeEnd(m_workspace);
++			m_workspace = nullptr;
++		}
++	}
++
++	QueryResult* ResultIterator::GetQuery() const
++	{
++		return m_queryResult.get();
++	}
++
++
++} // namespace SPTAG
+diff --git a/AnnService/src/Core/SPANN/SPANNIndex.cpp b/AnnService/src/Core/SPANN/SPANNIndex.cpp
+index 5b7e7c8..fb24022 100644
+--- a/AnnService/src/Core/SPANN/SPANNIndex.cpp
++++ b/AnnService/src/Core/SPANN/SPANNIndex.cpp
+@@ -5,7 +5,8 @@
+ #include "inc/Helper/VectorSetReaders/MemoryReader.h"
+ #include "inc/Core/SPANN/ExtraFullGraphSearcher.h"
+ #include <chrono>
+-
++#include "inc/Core/ResultIterator.h"
++#include "inc/Core/SPANNResultIterator.h"
+ #pragma warning(disable:4242)  // '=' : conversion from 'int' to 'short', possible loss of data
+ #pragma warning(disable:4244)  // '=' : conversion from 'int' to 'short', possible loss of data
+ #pragma warning(disable:4127)  // conditional expression is constant
+@@ -252,6 +253,102 @@ namespace SPTAG
+             return ErrorCode::Success;
+         }
+ 
++
++        template<typename T>
++        ErrorCode Index<T>::SearchIndexIterative(QueryResult& p_headQuery, QueryResult& p_query,
++            std::shared_ptr<COMMON::WorkSpace>& p_indexWorkspace,
++            std::shared_ptr<ExtraWorkSpace>& p_extraWorkspace,
++            bool first) const
++        {
++            if (!m_bReady) return ErrorCode::EmptyIndex;
++
++            COMMON::QueryResultSet<T>* p_headQueryResults = (COMMON::QueryResultSet<T>*) & p_headQuery;
++            COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
++           
++            if (first) {
++                p_headQueryResults->Reset();
++                m_index->SearchIndexIterativeFromNeareast(*p_headQueryResults, p_indexWorkspace, true);
++		p_extraWorkspace->m_loadPosting = true;
++            }
++
++            bool continueSearch = true;
++            while (continueSearch) {
++                bool found = SearchDiskIndexIterative(p_headQuery, p_query, p_extraWorkspace);
++                p_extraWorkspace->m_loadPosting = false;
++                if (!found)
++                {
++                    p_headQueryResults->Reset();
++                    continueSearch = m_index->SearchIndexIterativeFromNeareast(*p_headQueryResults, p_indexWorkspace, false);
++                    p_extraWorkspace->m_loadPosting = true;
++                }
++                else
++                    break;
++            }
++
++            if (p_query.WithMeta() && nullptr != m_pMetadata)
++            {
++                for (int i = 0; i < p_query.GetResultNum(); ++i)
++                {
++                    SizeType result = p_query.GetResult(i)->VID;
++                    p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
++                }
++            }
++            return ErrorCode::Success;
++        }
++
++        template<typename T>
++        std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void* p_target, bool p_searchDeleted) const
++        {
++            LOG(Helper::LogLevel::LL_Error, "ITERATIVE NOT SUPPORT FOR SPANN");
++            return nullptr;
++        }
++
++        template<typename T>
++        ErrorCode Index<T>::SearchIndexIterativeNext(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& workSpace, bool p_isFirst, bool p_searchDeleted) const
++        {
++            LOG(Helper::LogLevel::LL_Error, "ITERATIVE NOT SUPPORT FOR SPANN");
++            return ErrorCode::Undefined;
++        }
++
++        template<typename T>
++        ErrorCode Index<T>::SearchIndexIterativeEnd(std::shared_ptr<COMMON::WorkSpace>& space) const
++        {
++            LOG(Helper::LogLevel::LL_Error, "ITERATIVE NOT SUPPORT FOR SPANN");
++            return ErrorCode::Undefined;
++        }
++
++        template<typename T>
++        ErrorCode Index<T>::SearchIndexIterativeEnd(std::shared_ptr<COMMON::WorkSpace>& space,
++            std::shared_ptr<SPANN::ExtraWorkSpace>& extraWorkspace) const
++        {
++            if (!m_bReady) return ErrorCode::EmptyIndex;
++            m_index->SearchIndexIterativeEnd(space);
++            if(extraWorkspace != nullptr)
++                m_workSpacePool->Return(extraWorkspace);
++            
++            return ErrorCode::Success;
++        }
++
++        template <typename T>
++        bool Index<T>::SearchIndexIterativeFromNeareast(QueryResult& p_query, std::shared_ptr<COMMON::WorkSpace>& p_space, bool p_isFirst, bool p_searchDeleted) const
++        {
++            LOG(Helper::LogLevel::LL_Error, "SearchIndexIterativeFromNeareast NOT SUPPORT FOR SPANN");
++            return false;
++        }
++
++        template<typename T>
++        std::shared_ptr<SPANNResultIterator<T>> Index<T>::GetSPANNIterator(const void* p_target, bool p_searchDeletedi, int p_headBatch) const
++        {
++            if (!m_bReady) return nullptr;
++            auto headWorkspace = m_index->RentWorkSpace(p_headBatch);
++            auto extraWorkspace = m_workSpacePool->Rent();
++            extraWorkspace->m_deduper.clear();
++            extraWorkspace->m_postingIDs.clear();
++            std::shared_ptr<SPANNResultIterator<T>> resultIterator =
++                std::make_shared<SPANNResultIterator<T>>(this, p_target, headWorkspace, extraWorkspace, p_headBatch);
++            return resultIterator;
++        }
++
+         template <typename T>
+         ErrorCode Index<T>::SearchDiskIndex(QueryResult& p_query, SearchStats* p_stats) const
+         {
+@@ -299,6 +396,50 @@ namespace SPTAG
+             return ErrorCode::Success;
+         }
+ 
++        template <typename T>
++        bool Index<T>::SearchDiskIndexIterative(QueryResult& p_headQuery, QueryResult& p_query,
++            std::shared_ptr<ExtraWorkSpace>& extraWorkspace) const
++        {
++            if (extraWorkspace->m_loadPosting) {
++                COMMON::QueryResultSet<T>* p__headQueryResults = (COMMON::QueryResultSet<T>*) & p_headQuery;
++                //std::shared_ptr<ExtraWorkSpace> workSpace = m_workSpacePool->Rent();
++                //workSpace->m_deduper.clear();
++                extraWorkspace->m_postingIDs.clear();
++
++                //float limitDist = p_queryResults->GetResult(0)->Dist * m_options.m_maxDistRatio;
++
++                for (int i = 0; i < p__headQueryResults->GetResultNum(); ++i)
++                {
++                    auto res = p__headQueryResults->GetResult(i);
++                    //break or continue
++                    if (res->VID == -1) break;
++                    if (m_extraSearcher->CheckValidPosting(res->VID))
++                    {
++                        extraWorkspace->m_postingIDs.emplace_back(res->VID);
++                    }
++                    res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
++                    if (res->VID == MaxSize)
++                    {
++                        res->VID = -1;
++                        res->Dist = MaxDist;
++                    }
++                }
++            }
++
++            //p_queryResults->Reverse();
++            return m_extraSearcher->SearchIterativeNext(extraWorkspace.get(), p_query, m_index);
++            //m_workSpacePool->Return(workSpace);
++            //p_queryResults->SortResult();
++            //return ErrorCode::Success;
++        }
++
++        template<typename T>
++        std::shared_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace(int batch) const
++        {
++            LOG(Helper::LogLevel::LL_Error, "RentWorkSpace NOT SUPPORT FOR SPANN");
++            return nullptr;
++        }
++
+         template <typename T>
+         ErrorCode Index<T>::DebugSearchDiskIndex(QueryResult& p_query, int p_subInternalResultNum, int p_internalResultNum,
+             SearchStats* p_stats, std::set<int>* truth, std::map<int, std::set<int>>* found) const
+diff --git a/AnnService/src/Core/SPANNResultIterator.cpp b/AnnService/src/Core/SPANNResultIterator.cpp
+new file mode 100644
+index 0000000..a5166bb
+--- /dev/null
++++ b/AnnService/src/Core/SPANNResultIterator.cpp
+@@ -0,0 +1,68 @@
++/*
++#include "inc/Core/SPANNResultIterator.h"
++
++namespace SPTAG
++{
++	namespace SPANN
++	{
++		template<typename T>
++		SPANNResultIterator<T>::SPANNResultIterator(const Index<T>* p_index, const void* p_target,
++			std::shared_ptr<COMMON::WorkSpace> headWorkspace,
++			std::shared_ptr<SPANN::ExtraWorkSpace> extraWorkspace,
++			int batch)
++			:m_index(p_index),
++			m_target(p_target),
++			m_headWorkspace(headWorkspace),
++			m_extraWorkspace(extraWorkspace),
++			m_batch(batch)
++		{
++			m_headQueryResult = std::make_unique<QueryResult>(p_target, batch, false);
++			m_queryResult = std::make_unique<QueryResult>(p_target, 1, true);
++			m_isFirstResult = true;
++		}
++                
++		template<typename T>
++		SPANNResultIterator<T>::~SPANNResultIterator()
++		{
++			if (m_index != nullptr && m_headWorkspace != nullptr && m_extraWorkspace != nullptr) {
++				m_index->SearchIndexIterativeEnd(m_headWorkspace, m_extraWorkspace);
++			}
++			m_headQueryResult = nullptr;
++			m_queryResult = nullptr;
++		}
++
++		template<typename T>
++		bool SPANNResultIterator<T>::Next(BasicResult& result)
++		{
++			m_queryResult->Reset();
++			m_index->SearchIndexIterativeNext(*m_headQueryResult, *m_queryResult, m_headWorkspace, m_extraWorkspace, m_isFirstResult);
++			m_isFirstResult = false;
++			if (m_queryResult->GetResult(0) == nullptr || m_queryResult->GetResult(0)->VID < 0)
++			{
++				return false;
++			}
++			result.VID = m_queryResult->GetResult(0)->VID;
++			result.Dist = m_queryResult->GetResult(0)->Dist;
++			result.Meta = m_queryResult->GetResult(0)->Meta;
++			return true;
++		}
++
++		// Add end into destructor.
++		template<typename T>
++		void SPANNResultIterator<T>::Close()
++		{
++			if (m_headWorkspace != nullptr && m_extraWorkspace != nullptr) {
++				m_index->SearchIndexIterativeEnd(m_headWorkspace, m_extraWorkspace);
++				m_headWorkspace = nullptr;
++				m_extraWorkspace = nullptr;
++			}
++		}
++
++                template<typename T>
++		QueryResult* SPANNResultIterator<T>::GetQuery() const
++		{
++			return m_queryResult.get();
++		}
++	} // namespace SPANN
++} // namespace SPTAG
++*/
+ 
+diff --git a/Test/Test.vcxproj b/Test/Test.vcxproj
+index 8c93771..10c8f2a 100644
+--- a/Test/Test.vcxproj
++++ b/Test/Test.vcxproj
+@@ -153,7 +153,10 @@
+     <ClCompile Include="src\ConcurrentTest.cpp" />
+     <ClCompile Include="src\DistanceTest.cpp" />
+     <ClCompile Include="src\IniReaderTest.cpp" />
++    <ClCompile Include="src\IterativeScanTest.cpp" />
+     <ClCompile Include="src\main.cpp" />
++    <ClCompile Include="src\MultiIndexExperiment.cpp" />
++    <ClCompile Include="src\MultiIndexScanTest.cpp" />
+     <ClCompile Include="src\PerfTest.cpp" />
+     <ClCompile Include="src\ReconstructIndexSimilarityTest.cpp" />
+     <ClCompile Include="src\SIMDTest.cpp" />
+diff --git a/Test/Test.vcxproj.filters b/Test/Test.vcxproj.filters
+index 2f5bd1c..a198a2c 100644
+--- a/Test/Test.vcxproj.filters
++++ b/Test/Test.vcxproj.filters
+@@ -42,6 +42,15 @@
+     <ClCompile Include="src\ConcurrentTest.cpp">
+       <Filter>Source Files</Filter>
+     </ClCompile>
++    <ClCompile Include="src\IterativeScanTest.cpp">
++      <Filter>Source Files</Filter>
++    </ClCompile>
++    <ClCompile Include="src\MultiIndexExperiment.cpp">
++      <Filter>Source Files</Filter>
++    </ClCompile>
++    <ClCompile Include="src\MultiIndexScanTest.cpp">
++      <Filter>Source Files</Filter>
++    </ClCompile>
+     <ClCompile Include="src\PerfTest.cpp">
+       <Filter>Source Files</Filter>
+     </ClCompile>
+diff --git a/Test/src/IterativeScanTest.cpp b/Test/src/IterativeScanTest.cpp
+new file mode 100644
+index 0000000..a4c734d
+--- /dev/null
++++ b/Test/src/IterativeScanTest.cpp
+@@ -0,0 +1,95 @@
++// Copyright (c) Microsoft Corporation. All rights reserved.
++// Licensed under the MIT License.
++
++#include "inc/Test.h"
++#include "inc/Helper/SimpleIniReader.h"
++#include "inc/Core/VectorIndex.h"
++#include "inc/Core/ResultIterator.h"
++#include "inc/Core/Common/CommonUtils.h"
++
++#include <unordered_set>
++#include <chrono>
++
++template <typename T>
++void BuildIndex(SPTAG::IndexAlgoType algo, std::string distCalcMethod, std::shared_ptr<SPTAG::VectorSet>& vec, std::shared_ptr<SPTAG::MetadataSet>& meta, const std::string out)
++{
++
++    std::shared_ptr<SPTAG::VectorIndex> vecIndex = SPTAG::VectorIndex::CreateInstance(algo, SPTAG::GetEnumValueType<T>());
++    BOOST_CHECK(nullptr != vecIndex);
++
++    vecIndex->SetParameter("DistCalcMethod", distCalcMethod);
++    vecIndex->SetParameter("NumberOfThreads", "16");
++
++    BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->BuildIndex(vec, meta));
++    BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->SaveIndex(out));
++}
++
++template <typename T>
++void SearchIterative(const std::string folder, T* vec, SPTAG::SizeType n, int k, std::string* truthmeta)
++{
++    std::shared_ptr<SPTAG::VectorIndex> vecIndex;
++    BOOST_CHECK(SPTAG::ErrorCode::Success == SPTAG::VectorIndex::LoadIndex(folder, vecIndex));
++    BOOST_CHECK(nullptr != vecIndex);
++    SPTAG::BasicResult result;
++    std::shared_ptr<SPTAG::ResultIterator> resultIterator = vecIndex->GetIterator(vec, true);
++    for (int i = 0; i < 100; i++) {
++        bool hasResult = resultIterator->Next(result);
++        if (!hasResult) break;
++        std::cout << "hasResult: " << hasResult << std::endl;
++        std::cout << "result: " << result.VID << std::endl;  
++    }
++    resultIterator->Close();
++}
++
++template <typename T>
++void TestIterativeScan(SPTAG::IndexAlgoType algo, std::string distCalcMethod)
++{
++    SPTAG::SizeType n = 2000, q = 3;
++    SPTAG::DimensionType m = 10;
++    int k = 3;
++    std::vector<T> vec;
++    for (SPTAG::SizeType i = 0; i < n; i++) {
++        for (SPTAG::DimensionType j = 0; j < m; j++) {
++            vec.push_back((T)i);
++        }
++    }
++
++    std::vector<T> query;
++    for (SPTAG::SizeType i = 0; i < q; i++) {
++        for (SPTAG::DimensionType j = 0; j < m; j++) {
++            query.push_back((T)i * 2);
++        }
++    }
++
++    std::vector<char> meta;
++    std::vector<std::uint64_t> metaoffset;
++    for (SPTAG::SizeType i = 0; i < n; i++) {
++        metaoffset.push_back((std::uint64_t)meta.size());
++        std::string a = std::to_string(i);
++        for (size_t j = 0; j < a.length(); j++)
++            meta.push_back(a[j]);
++    }
++    metaoffset.push_back((std::uint64_t)meta.size());
++
++    std::shared_ptr<SPTAG::VectorSet> vecset(new SPTAG::BasicVectorSet(
++        SPTAG::ByteArray((std::uint8_t*)vec.data(), sizeof(T) * n * m, false),
++        SPTAG::GetEnumValueType<T>(), m, n));
++
++    std::shared_ptr<SPTAG::MetadataSet> metaset(new SPTAG::MemMetadataSet(
++        SPTAG::ByteArray((std::uint8_t*)meta.data(), meta.size() * sizeof(char), false),
++        SPTAG::ByteArray((std::uint8_t*)metaoffset.data(), metaoffset.size() * sizeof(std::uint64_t), false),
++        n));
++
++    BuildIndex<T>(algo, distCalcMethod, vecset, metaset, "testindices");
++    std::string truthmeta1[] = { "0", "1", "2", "2", "1", "3", "4", "3", "5" };
++    SearchIterative<T>("testindices", query.data(), q, k, truthmeta1);
++}
++
++BOOST_AUTO_TEST_SUITE(IterativeScanTest)
++
++BOOST_AUTO_TEST_CASE(BKTTest)
++{
++    TestIterativeScan<float>(SPTAG::IndexAlgoType::BKT, "L2");
++}
++
++BOOST_AUTO_TEST_SUITE_END()
+diff --git a/Test/src/MultiIndexExperiment.cpp b/Test/src/MultiIndexExperiment.cpp
+new file mode 100644
+index 0000000..e6f3252
+--- /dev/null
++++ b/Test/src/MultiIndexExperiment.cpp
+@@ -0,0 +1,230 @@
++// Copyright (c) Microsoft Corporation. All rights reserved.
++// Licensed under the MIT License.
++
++#include "inc/Test.h"
++#include "inc/Helper/SimpleIniReader.h"
++#include "inc/Core/VectorIndex.h"
++#include "inc/Core/MultiIndexScan.h"
++#include "inc/Core/Common/CommonUtils.h"
++
++#include <chrono>
++#include <numeric>
++#include <set>
++std::vector<int> VID2rid;
++
++
++// top number to query 
++int topk = 50;
++//vector dimension
++SPTAG::DimensionType m = 1024;
++std::string pathEmbeddings = "/embeddings/";
++std::string outputResult = "/result/";
++std::vector<int> testSearchLimit = {256, 512, 1024};
++
++
++struct FinalData{
++    double Dist;
++    int rid, vid;
++    FinalData(double x, int y, int z): Dist(x), rid(y), vid(z){}
++    bool operator < (const FinalData x) const {
++        return Dist < x.Dist;
++    }
++};
++
++static std::string indexName(unsigned int id){
++    return "testindices" + std::to_string(id);
++}
++
++template <typename T>
++void BuildIndex(SPTAG::IndexAlgoType algo, std::string distCalcMethod, std::shared_ptr<SPTAG::VectorSet>& vec, std::shared_ptr<SPTAG::MetadataSet>& meta, const std::string out)
++{
++
++    std::shared_ptr<SPTAG::VectorIndex> vecIndex = SPTAG::VectorIndex::CreateInstance(algo, SPTAG::GetEnumValueType<T>());
++    BOOST_CHECK(nullptr != vecIndex);
++
++    vecIndex->SetParameter("DistCalcMethod", distCalcMethod);
++    vecIndex->SetParameter("NumberOfThreads", "16");
++
++    BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->BuildIndex(vec, meta));
++    BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->SaveIndex(out));
++}
++
++float sumFunc(std::vector<float> in){
++    return std::accumulate(in.begin(), in.end(), (float)0.0);
++}
++
++template <typename T>
++void GenerateVectorDataSet(SPTAG::IndexAlgoType algo, std::string distCalcMethod, unsigned int id, std::vector<T> &query, std::vector<T> &query_id, std::string File_name){
++    SPTAG::SizeType n = 0, q = 0;
++
++    std::string fileName;
++    fileName = pathEmbeddings + File_name + "_embeds_collection.tsv";
++	std::ifstream in1(fileName.c_str());
++    if (!in1)
++	{
++		std::cout << "Fail to read " << fileName << "." << std::endl;
++		return;
++	}
++    std::vector<T> vec;
++    std::string line;
++    std::vector<std::uint64_t> meta;
++
++    for (; getline(in1, line); n++)
++	{
++        std::uint64_t number = 0;
++        std::string a = line.substr(0, line.find("\t"));
++        for (size_t j = 0; j < a.length(); j++)
++            number = number * 10 + a[j] - '0'; 
++        VID2rid.push_back(number);
++        meta.push_back(number);
++
++        int l = vec.size();
++		line.erase(0, line.find("[") + 1);
++        for (SPTAG::DimensionType j = 0; j < m - 1; j++) {
++            vec.push_back((T)std::stof(line.substr(0, line.find(","))));
++            line.erase(0, line.find(",") + 2);
++        }
++        vec.push_back((T)std::stof(line.substr(0, line.find("]"))));
++        //normalization;
++        int r = vec.size();
++        double sum = 0.0;
++        for (int i = l; i < r; i++)
++            sum += vec[i] * vec[i];
++        sum = sqrt(sum);
++        for (int i = l; i < r; i++)
++            vec[i] = vec[i] / sum;
++
++    }
++    fileName = pathEmbeddings + File_name + "_embeds_query.tsv";
++	std::ifstream in2(fileName.c_str());
++    if (!in2)
++	{
++		std::cout << "Fail to read " << fileName << "." << std::endl;
++		return;
++	}
++    for (; getline(in2, line); q++)
++	{
++        query_id.push_back((T)std::stof(line.substr(0, line.find("\t"))));
++
++        int l = query.size();
++		line.erase(0, line.find("[") + 1);
++        for (SPTAG::DimensionType j = 0; j < m - 1; j++) {
++            query.push_back((T)std::stof(line.substr(0, line.find(","))));
++            line.erase(0, line.find(",") + 2);
++        }
++        query.push_back((T)std::stof(line.substr(0, line.find("]"))));
++        //normalization;
++        int r = query.size();
++        double sum = 0.0;
++        for (int i = l; i < r; i++)
++            sum += query[i] * query[i];
++        sum = sqrt(sum);
++        for (int i = l; i < r; i++)
++            query[i] = query[i] / sum;
++    }
++
++    std::shared_ptr<SPTAG::VectorSet> vecset(new SPTAG::BasicVectorSet(
++        SPTAG::ByteArray((std::uint8_t*)vec.data(), sizeof(T) * n * m, false),
++        SPTAG::GetEnumValueType<T>(), m, n));
++
++    std::shared_ptr<SPTAG::MetadataSet> metaset (new SPTAG::MemMetadataSet(
++            n * sizeof(std::uint64_t),
++            n * sizeof(std::uint64_t),
++            n));
++    for (auto x : meta){
++        std::uint8_t result[sizeof(x)];
++        std::memcpy(result, &x, sizeof(x));
++        metaset->Add(SPTAG::ByteArray(result, 8, false));
++    }
++
++    BuildIndex<T>(algo, distCalcMethod, vecset, metaset, indexName(id).c_str());
++}
++
++template <typename T>
++void TestMultiIndexScanN(SPTAG::IndexAlgoType algo, std::string distCalcMethod, unsigned int n)
++{
++    
++    std::vector<std::vector<T>> queries(n, std::vector<T>());
++    std::vector<std::vector<T>> query_id(n, std::vector<T>());
++
++    GenerateVectorDataSet<T>(algo, distCalcMethod, 0, queries[0], query_id[0], "img");
++    GenerateVectorDataSet<T>(algo, distCalcMethod, 1, queries[1], query_id[1], "rec");
++
++    for (auto KK: testSearchLimit)
++    {
++        std::string output_result_path = outputResult + std::to_string(KK) + "_qrels.txt";
++        std::string output_lantency_path = outputResult + std::to_string(KK) + "_latency.txt";
++
++        std::ofstream out1;
++        out1.open(output_result_path);
++
++        if (!out1.is_open())
++        {
++            std::cout << "Cannot open file out1" << std::endl;
++            return ;
++        }
++        
++        std::ofstream out2;
++        out2.open(output_lantency_path);
++        if (!out2.is_open())
++        {
++            std::cout << "Cannot open file out2" << std::endl;
++            return ;
++        }
++
++        for ( int i = 0; i < query_id[0].size(); i++ ){
++            std::vector<std::vector<T>> query_current(n, std::vector<T>());
++            for ( int j = 0; j < n ; j++ ){
++                for ( int k = i * m; k <  i * m + m; k++ ){
++                    query_current[j].push_back(queries[j][k]);
++                }
++            }
++            int idquery = query_id[0][i];
++            std::vector<std::shared_ptr<SPTAG::VectorIndex>> vecIndices;
++            std::vector<void*> p_targets;
++            for ( int i = 0; i < n; i++ ) {
++                std::shared_ptr<SPTAG::VectorIndex> vecIndex;
++                BOOST_CHECK(SPTAG::ErrorCode::Success == SPTAG::VectorIndex::LoadIndex(indexName(i).c_str(), vecIndex));
++                BOOST_CHECK(nullptr != vecIndex);
++                vecIndices.push_back(vecIndex);
++                p_targets.push_back(query_current[i].data());
++            }
++
++            double Begin_time = clock();
++            SPTAG::MultiIndexScan scan(vecIndices, p_targets, topk, &sumFunc, false, 10000000, KK);
++            SPTAG::BasicResult result;
++
++            std::set<FinalData> FinalResult;
++            
++            for (int i = 0; i < topk; i++) {
++                bool hasResult = scan.Next(result);
++                if (!hasResult) break;
++
++                FinalResult.insert(FinalData(result.Dist, VID2rid[result.VID], result.VID));
++                auto Finaltmp = FinalResult.end();
++                Finaltmp--;
++                if (FinalResult.size() > topk) FinalResult.erase(Finaltmp);
++            }
++
++            double End_time = clock();
++            out2 << idquery << "\t" << (End_time-Begin_time)/CLOCKS_PER_SEC << std::endl;
++            int Rank = 0;
++            for (auto i = FinalResult.begin(); i != FinalResult.end(); i++)
++                out1 << idquery << " " << i->rid << " " << ++Rank << " " << i->vid << " " << i->Dist << std::endl;
++
++            for (int i = FinalResult.size(); i < topk; i++)
++                out1 << idquery << " " << -1 << " " << ++Rank << " " << -1 << " " << -1 << std::endl;
++
++            scan.Close();
++        }
++    }
++}
++
++BOOST_AUTO_TEST_SUITE(MultiIndexExperiment)
++
++BOOST_AUTO_TEST_CASE(BKTTest)
++{
++    TestMultiIndexScanN<float>(SPTAG::IndexAlgoType::BKT, "InnerProduct", 2);
++}
++
++BOOST_AUTO_TEST_SUITE_END()
+diff --git a/Test/src/MultiIndexScanTest.cpp b/Test/src/MultiIndexScanTest.cpp
+new file mode 100644
+index 0000000..8d9cf0d
+--- /dev/null
++++ b/Test/src/MultiIndexScanTest.cpp
+@@ -0,0 +1,124 @@
++// Copyright (c) Microsoft Corporation. All rights reserved.
++// Licensed under the MIT License.
++
++#include "inc/Test.h"
++#include "inc/Helper/SimpleIniReader.h"
++#include "inc/Core/VectorIndex.h"
++#include "inc/Core/MultiIndexScan.h"
++#include "inc/Core/Common/CommonUtils.h"
++
++#include <chrono>
++
++#include <numeric>
++
++static std::string indexName(unsigned int id){
++    return "testindices" + std::to_string(id);
++}
++template <typename T>
++void BuildIndex(SPTAG::IndexAlgoType algo, std::string distCalcMethod, std::shared_ptr<SPTAG::VectorSet>& vec, std::shared_ptr<SPTAG::MetadataSet>& meta, const std::string out)
++{
++
++    std::shared_ptr<SPTAG::VectorIndex> vecIndex = SPTAG::VectorIndex::CreateInstance(algo, SPTAG::GetEnumValueType<T>());
++    BOOST_CHECK(nullptr != vecIndex);
++
++    vecIndex->SetParameter("DistCalcMethod", distCalcMethod);
++    vecIndex->SetParameter("NumberOfThreads", "16");
++
++    BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->BuildIndex(vec, meta));
++    BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->SaveIndex(out));
++}
++
++float rankFunc(std::vector<float> in){
++    return std::accumulate(in.begin(), in.end(), 0);
++}
++
++template <typename T>
++void MultiIndexSearch(unsigned int n, std::vector<std::vector<T>> &queries, int k, bool userTimer, int termCond)
++{
++
++    std::vector<std::shared_ptr<SPTAG::VectorIndex>> vecIndices;
++    std::vector<void*> p_targets;
++    for ( int i = 0; i < n; i++ ) {
++        std::shared_ptr<SPTAG::VectorIndex> vecIndex;
++        BOOST_CHECK(SPTAG::ErrorCode::Success == SPTAG::VectorIndex::LoadIndex(indexName(i).c_str(), vecIndex));
++        BOOST_CHECK(nullptr != vecIndex);
++        vecIndices.push_back(vecIndex);
++        p_targets.push_back(queries[i].data());
++    }
++
++    SPTAG::MultiIndexScan scan(vecIndices, p_targets, k, &rankFunc, false, 10, 10);
++    SPTAG::BasicResult result;
++
++    std::cout << "Start Scanning!!! " << std::endl;
++
++    for (int i = 0; i < 100; i++) {
++        bool hasResult = scan.Next(result);
++        if (!hasResult) break;
++        std::cout << "hasResult: " << hasResult << std::endl;
++        std::cout << "result: " << result.VID << std::endl;  
++    }
++    scan.Close();
++}
++
++template <typename T>
++void GenerateVectorDataSet(SPTAG::IndexAlgoType algo, std::string distCalcMethod, unsigned int id, std::vector<T> &query){
++    SPTAG::SizeType n = 2000, q = 3;
++    SPTAG::DimensionType m = 10;
++
++    std::vector<T> vec;
++    for (SPTAG::SizeType i = 0; i < n; i++) {
++        for (SPTAG::DimensionType j = 0; j < m; j++) {
++            vec.push_back((T)i+id*n);
++        }
++    }
++
++    for (SPTAG::SizeType i = 0; i < q; i++) {
++        for (SPTAG::DimensionType j = 0; j < m; j++) {
++            query.push_back((T)i * 2 +id*n);
++        }
++    }
++
++    std::vector<char> meta;
++    std::vector<std::uint64_t> metaoffset;
++    for (SPTAG::SizeType i = 0; i < n; i++) {
++        metaoffset.push_back((std::uint64_t)meta.size());
++        std::string a = std::to_string(i+id*n);
++        for (size_t j = 0; j < a.length(); j++)
++            meta.push_back(a[j]);
++    }
++    metaoffset.push_back((std::uint64_t)meta.size());
++
++    std::shared_ptr<SPTAG::VectorSet> vecset(new SPTAG::BasicVectorSet(
++        SPTAG::ByteArray((std::uint8_t*)vec.data(), sizeof(T) * n * m, false),
++        SPTAG::GetEnumValueType<T>(), m, n));
++
++    std::shared_ptr<SPTAG::MetadataSet> metaset(new SPTAG::MemMetadataSet(
++        SPTAG::ByteArray((std::uint8_t*)meta.data(), meta.size() * sizeof(char), false),
++        SPTAG::ByteArray((std::uint8_t*)metaoffset.data(), metaoffset.size() * sizeof(std::uint64_t), false),
++        n));
++
++    BuildIndex<T>(algo, distCalcMethod, vecset, metaset, indexName(id).c_str());
++}
++
++template <typename T>
++void TestMultiIndexScanN(SPTAG::IndexAlgoType algo, std::string distCalcMethod, unsigned int n)
++{
++    int k = 3;
++    std::vector<std::vector<T>> queries(n, std::vector<T>());
++
++    for ( int i = 0; i < n; i++ ){
++        GenerateVectorDataSet<T>(algo, distCalcMethod, i, queries[i]);
++    }
++
++    MultiIndexSearch<T>(n, queries, k, false, 10);
++    
++}
++
++BOOST_AUTO_TEST_SUITE(MultiIndexScanTest)
++
++BOOST_AUTO_TEST_CASE(BKTTest)
++{
++    TestMultiIndexScanN<float>(SPTAG::IndexAlgoType::BKT, "L2", 2);
++}
++
++BOOST_AUTO_TEST_SUITE_END()
+diff --git a/Wrappers/inc/CLRCoreInterface.h b/Wrappers/inc/CLRCoreInterface.h
+index 3f5ec36..d352a55 100644
+--- a/Wrappers/inc/CLRCoreInterface.h
++++ b/Wrappers/inc/CLRCoreInterface.h
+@@ -4,6 +4,8 @@
+ #pragma once
+ #include "ManagedObject.h"
+ #include "inc/Core/VectorIndex.h"
++#include "inc/Core/ResultIterator.h"
++#include "inc/Core/MultiIndexScan.h"
+ 
+ using namespace System;
+ 
+@@ -64,6 +66,15 @@ namespace Microsoft
+                 }
+             };
+ 
++            public ref class ResultIterator :
++                public ManagedObject<std::shared_ptr<SPTAG::ResultIterator>>
++            {
++            public:
++                ResultIterator(std::shared_ptr<SPTAG::ResultIterator> result_iterator);
++                BasicResult^ Next();
++                void Close();
++            };
++
+             public ref class AnnIndex :
+                 public ManagedObject<std::shared_ptr<SPTAG::VectorIndex>>
+             {
+@@ -88,6 +99,8 @@ namespace Microsoft
+ 
+                 array<BasicResult^>^ SearchWithMetaData(array<Byte>^ p_data, int p_resultNum);
+ 
++                ResultIterator^ GetIterator(array<Byte>^ p_data, int p_resultNum);
++
+                 bool Save(String^ p_saveFile);
+ 
+                 array<array<Byte>^>^ Dump();
+@@ -116,6 +129,18 @@ namespace Microsoft
+ 
+                 size_t m_inputVectorSize;
+             };
++
++            public ref class MultiIndexScan :
++                public ManagedObject<std::shared_ptr<SPTAG::MultiIndexScan>>
++            {
++            public:
++                MultiIndexScan(std::shared_ptr<SPTAG::MultiIndexScan> multi_index_scan);
++                MultiIndexScan(array<AnnIndex^>^ indice, array<array<Byte>^>^ p_data, array<float>^ weight, int p_resultNum,
++                    bool useTimer, int termCondVal, int searchLimit);
++                BasicResult^ Next();
++                void Close();
++            };
++
+         }
+     }
+ }
+diff --git a/Wrappers/src/CLRCoreInterface.cpp b/Wrappers/src/CLRCoreInterface.cpp
+index 883799a..6d02004 100644
+--- a/Wrappers/src/CLRCoreInterface.cpp
++++ b/Wrappers/src/CLRCoreInterface.cpp
+@@ -10,6 +10,23 @@ namespace Microsoft
+     {
+         namespace SPTAGManaged
+         {
++            ResultIterator::ResultIterator(std::shared_ptr<SPTAG::ResultIterator> result_iterator) :
++                ManagedObject(result_iterator)
++            {
++            }
++
++            BasicResult^ ResultIterator::Next()
++            {
++                SPTAG::BasicResult* result = new SPTAG::BasicResult();
++                (*m_Instance)->Next(*result);
++                return gcnew BasicResult(result);
++            }
++
++            void ResultIterator::Close()
++            {
++                (*m_Instance)->Close();
++            }
++
+             AnnIndex::AnnIndex(std::shared_ptr<SPTAG::VectorIndex> p_index) :
+                 ManagedObject(p_index)
+             {
+@@ -106,6 +123,19 @@ namespace Microsoft
+                 return res;
+             }
+ 
++            ResultIterator^ AnnIndex::GetIterator(array<Byte>^ p_data, int p_resultNum)
++            {
++                ResultIterator^ res;
++                if (m_Instance == nullptr || m_dimension == 0 || p_data->LongLength != m_inputVectorSize)
++                    return res;
++
++                pin_ptr<Byte> ptr = &p_data[0];
++                std::shared_ptr<SPTAG::ResultIterator> result_iterator = (*m_Instance)->GetIterator(ptr, p_resultNum);
++
++                res = gcnew ResultIterator(result_iterator);
++                return res;
++            }
++
+             bool AnnIndex::Save(String^ p_saveFile)
+             {
+                 return SPTAG::ErrorCode::Success == (*m_Instance)->SaveIndex(string_to_char_array(p_saveFile));
+@@ -230,6 +260,53 @@ namespace Microsoft
+                 }
+                 return res;
+             }
++
++            MultiIndexScan::MultiIndexScan(std::shared_ptr<SPTAG::MultiIndexScan> multi_index_scan) :
++                ManagedObject(multi_index_scan)
++            {
++            }
++
++            MultiIndexScan::MultiIndexScan(array<AnnIndex^>^ indice, array<array<Byte>^>^ p_data, array<float>^ weight, int p_resultNum,
++                bool useTimer, int termCondVal, int searchLimit) : ManagedObject(std::make_shared<SPTAG::MultiIndexScan>())
++            {
++                std::vector<std::shared_ptr<SPTAG::VectorIndex>> vecIndices;
++                for (int i = 0; i < indice->Length; i++)
++                {
++                    std::shared_ptr<SPTAG::VectorIndex> index = *(indice[i]->GetInstance());
++                    vecIndices.push_back(index);
++                }
++
++                std::vector<SPTAG::ByteArray> data_array;
++                for (int i = 0; i < p_data->Length; i++)
++                {
++                    pin_ptr<Byte> ptr = &p_data[i][0];
++                    SPTAG::ByteArray byte_target = SPTAG::ByteArray::Alloc(p_data[i]->LongLength);
++                    byte_target.Set((std::uint8_t*)ptr, p_data[i]->LongLength, false);
++                    data_array.push_back(byte_target);
++                }
++
++                std::vector<float> weight_array;
++                for (int i = 0; i < weight->Length; i++)
++                {
++                    float w = weight[i];
++                    weight_array.push_back(w);
++                }
++
++                (*m_Instance)->Init(vecIndices, data_array, weight_array, p_resultNum, useTimer, termCondVal, searchLimit);
++            }
++
++            BasicResult^ MultiIndexScan::Next()
++            {
++                SPTAG::BasicResult* result = new SPTAG::BasicResult();
++                (*m_Instance)->Next(*result);
++                return gcnew BasicResult(result);
++            }
++
++            void MultiIndexScan::Close()
++            {
++                (*m_Instance)->Close();
++            }
++
+         }
+     }
+ }
+\ No newline at end of file

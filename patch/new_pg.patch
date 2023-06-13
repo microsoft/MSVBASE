@@ -1,0 +1,366 @@
+diff --git a/src/backend/tcop/postgres.c b/src/backend/tcop/postgres.c
+index 1342c18c74..99bdccfe84 100644
+--- a/src/backend/tcop/postgres.c
++++ b/src/backend/tcop/postgres.c
+@@ -973,6 +973,55 @@ pg_plan_queries(List *querytrees, const char *query_string, int cursorOptions,
+ 	return stmt_list;
+ }
+ 
++char* strndup(const char* str, size_t n) {
++	size_t len = strlen(str);
++	size_t copyLen = (n < len) ? n : len;
++
++	char* copy = (char*)palloc(copyLen + 1);
++	if (copy == NULL) {
++		return NULL;
++	}
++
++	memcpy(copy, str, copyLen);
++	copy[copyLen] = '\0';
++
++	return copy;
++}
++
++char* lowercase(const char* str)
++{
++	size_t copyLen = strlen(str);
++
++	char* copy = (char*)palloc(copyLen + 1);
++	if (copy == NULL) {
++		return NULL;
++	}
++	size_t i = 0;
++	size_t j = 0;
++
++	while (i < copyLen)
++	{
++		if (str[i] == ' ')
++		{
++			copy[j] = ' ';
++			i++;
++			j++;
++			while (str[i] == ' ')
++			{
++				i++;
++			}
++		}
++		else
++		{
++			copy[j] = tolower(str[i]);
++			i++;
++			j++;
++		}
++	}
++	copy[j] = '\0';
++
++	return copy;
++}
+ 
+ /*
+  * exec_simple_query
+@@ -991,6 +1040,141 @@ exec_simple_query(const char *query_string)
+ 	bool		use_implicit_block;
+ 	char		msec_str[32];
+ 
++       /*
++        parse multi topk statement
++       
++        const char* inputSql = "SELECT id FROM table WHERE price>10 ORDER    BY approximate_sum(    '0.5 *   vector1<->{1,2,3} + vector2<->{5,6,7} + vector3<->{8,9,0}' ) limit 5;";
++	char* sql = lowercase(inputSql);
++	ereport(LOG, (errmsg("originial low canse string: %s\n", sql)));
++
++	const char* whereDelimiter = "where";
++	const char* orderByDelimiter = "order by";
++	const char* selectDelimiter = "select";
++	const char* fromDelimiter = "from";
++	const char* approximateSumDelimiter = "approximate_sum(";
++	const char* endDelimiter = ")";
++	const char* limitDelimiter = "limit";
++	const char* semicolonDelimiter = ";";
++	const char* termCond = "50";
++
++	const char* approximateSumStart = strstr(sql, approximateSumDelimiter);
++	if (approximateSumStart != NULL)
++	{
++		char* select;
++		char* table;
++		char* where;
++		char* order[100];
++		size_t orderLength = 0;
++		size_t limit;
++
++		ereport(LOG, (errmsg("approximateSumStart: %s\n", approximateSumStart)));
++		const char* approximateSumEnd = strstr(approximateSumStart, limitDelimiter);
++		char* orderByString = strndup(approximateSumStart + strlen(approximateSumDelimiter), approximateSumEnd - approximateSumStart - strlen(approximateSumDelimiter));
++		size_t last = strlen(orderByString) - 1;
++		size_t first = 0;
++		size_t second = 0;
++		while (orderByString[first] != '\'')
++		{
++			first++;
++		}
++		first++;
++		while (orderByString[first] != '\0')
++		{
++			orderByString[second] = orderByString[first];
++			first++;
++			second++;
++		}
++		orderByString[second] = '\0';
++		while (orderByString[last] != '\)')
++		{
++			last--;
++		}
++		while (orderByString[last] != '\'')
++		{
++			last--;
++		}
++
++		orderByString[last] = '\0';
++		ereport(LOG,(errmsg("orderByString: %s\n", orderByString)));
++
++		char* orderByItemsString = strndup(orderByString, strlen(orderByString));
++		char* token = strtok(orderByItemsString, "+");
++		int i = 0;
++		while (token != NULL) {
++			orderLength++;
++			order[i] = strndup(token, strlen(token));
++			ereport(LOG, (errmsg("order token: %s\n", order[i])));
++			token = strtok(NULL, "+");
++			i++;
++		}
++
++		//id
++		const char* selectStart = strstr(sql, selectDelimiter);
++		const char* selectEnd = strstr(selectStart, fromDelimiter);
++		char* selectString = strndup(selectStart + strlen(selectDelimiter), selectEnd - selectStart - strlen(selectDelimiter));
++		ereport(LOG, (errmsg("selectString: %s\n", selectString)));
++
++		const char* tableDelimiter = orderByDelimiter;
++		//price > 10
++		char* whereString = NULL;
++		const char* whereStart = strstr(sql, whereDelimiter);
++		if (whereStart != NULL)
++		{
++			const char* whereEnd = strstr(whereStart, orderByDelimiter);
++			whereString = strndup(whereStart + strlen(whereDelimiter), whereEnd - whereStart - strlen(whereDelimiter));
++			tableDelimiter = whereDelimiter;
++			ereport(LOG, (errmsg("whereString: %s\n", whereString)));
++		}
++
++		//limit 5;
++		const char* limitStart = strstr(sql, limitDelimiter);
++		const char* limitEnd = strstr(limitStart, semicolonDelimiter);
++		char* limitString = strndup(limitStart + strlen(limitDelimiter), limitEnd - limitStart - strlen(limitDelimiter));
++		ereport(LOG, (errmsg("limitString: %s\n", limitString)));
++
++		//table
++		const char* fromStart = strstr(sql, fromDelimiter);
++		const char* fromEnd = strstr(fromStart, tableDelimiter);
++		char* fromString = strndup(fromStart + strlen(fromDelimiter), fromEnd - fromStart - strlen(fromDelimiter));
++		ereport(LOG, (errmsg("fromString: %s\n", fromString)));
++
++		char* result = (char*)malloc(strlen(sql) * 2);
++		strcpy(result, "select * from multicol_topk('");
++		strcat(result, fromString);
++		strcat(result, "',");
++		strcat(result, limitString);
++		strcat(result, ", ");
++		char buff[10] = { 0 };
++		strcat(result, termCond);
++		strcat(result, ", ");
++		strcat(result, "'");
++		strcat(result, selectString);
++		strcat(result, "',");
++		strcat(result, "'");
++		if (whereStart != NULL)
++		{
++			strcat(result, whereString);
++		}
++		strcat(result, "',");
++		strcat(result, "'");
++		strcat(result, orderByString);
++		strcat(result, "',");
++
++		for (int i = 0; i < orderLength; i++)
++		{
++			strcat(result, "'");
++			strcat(result, order[i]);
++			strcat(result, "'");
++			if (i < orderLength - 1) {
++				strcat(result, ",");
++			}
++		}
++		strcat(result, ");");
++
++		ereport(LOG,(errmsg("result: %s\n", result)));
++		query_string = result;
++        }
++	*/
+ 	/*
+ 	 * Report query to various monitoring facilities.
+ 	 */
+@@ -4329,7 +4513,151 @@ PostgresMain(int argc, char *argv[],
+ 
+ 					query_string = pq_getmsgstring(&input_message);
+ 					pq_getmsgend(&input_message);
+-
++                                               /*
++        parse multi topk statement
++       */
++        const char* inputSql = "SELECT id FROM table WHERE price>10 ORDER    BY approximate_sum(    '0.5 *   vector1<->{1,2,3} + vector2<->{5,6,7} + vector3<->{8,9,0}' ) limit 5;";
++        char* sql = lowercase(inputSql);
++        ereport(LOG, (errmsg("originial low canse string: %s\n", sql)));
++
++        const char* whereDelimiter = "where";
++        const char* orderByDelimiter = "order by";
++        const char* selectDelimiter = "select";
++        const char* fromDelimiter = "from";
++        const char* approximateSumDelimiter = "approximate_sum(";
++        const char* endDelimiter = ")";
++        const char* limitDelimiter = "limit";
++        const char* semicolonDelimiter = ";";
++        const char* termCond = "50";
++        char* result = (char*)palloc(strlen(sql) * 2);
++        const char* approximateSumStart = strstr(sql, approximateSumDelimiter);
++        if (approximateSumStart != NULL)
++        {
++                char* select;
++                char* table;
++                char* where;
++                char* order[100];
++                size_t orderLength = 0;
++                size_t limit;
++
++                ereport(LOG, (errmsg("approximateSumStart: %s\n", approximateSumStart)));
++                const char* approximateSumEnd = strstr(approximateSumStart, limitDelimiter);
++                char* orderByString = strndup(approximateSumStart + strlen(approximateSumDelimiter), approximateSumEnd - approximateSumStart - strlen(approximateSumDelimiter));
++                size_t last = strlen(orderByString) - 1;
++                size_t first = 0;
++                size_t second = 0;
++                while (orderByString[first] != '\'')
++                {
++                        first++;
++                }
++                first++;
++                while (orderByString[first] != '\0')
++                {
++                        orderByString[second] = orderByString[first];
++                        first++;
++                        second++;
++                }
++                orderByString[second] = '\0';
++                while (orderByString[last] != '\)')
++                {
++                        last--;
++                }
++                while (orderByString[last] != '\'')
++                {
++                        last--;
++                }
++
++                orderByString[last] = '\0';
++                ereport(LOG,(errmsg("orderByString: %s\n", orderByString)));
++
++                char* orderByItemsString = strndup(orderByString, strlen(orderByString));
++                char* token = strtok(orderByItemsString, "+");
++                int i = 0;
++                while (token != NULL) {
++                        orderLength++;
++                        order[i] = strndup(token, strlen(token));
++                        ereport(LOG, (errmsg("order token: %s\n", order[i])));
++                        token = strtok(NULL, "+");
++                        i++;
++                }
++
++                //id
++                const char* selectStart = strstr(sql, selectDelimiter);
++                const char* selectEnd = strstr(selectStart, fromDelimiter);
++                char* selectString = strndup(selectStart + strlen(selectDelimiter), selectEnd - selectStart - strlen(selectDelimiter));
++                ereport(LOG, (errmsg("selectString: %s\n", selectString)));
++
++                const char* tableDelimiter = orderByDelimiter;
++                //price > 10
++                char* whereString = NULL;
++                const char* whereStart = strstr(sql, whereDelimiter);
++                if (whereStart != NULL)
++                {
++                        const char* whereEnd = strstr(whereStart, orderByDelimiter);
++                        whereString = strndup(whereStart + strlen(whereDelimiter), whereEnd - whereStart - strlen(whereDelimiter));
++                        tableDelimiter = whereDelimiter;
++                        ereport(LOG, (errmsg("whereString: %s\n", whereString)));
++                }
++
++                //limit 5;
++                const char* limitStart = strstr(sql, limitDelimiter);
++                const char* limitEnd = strstr(limitStart, semicolonDelimiter);
++                char* limitString = strndup(limitStart + strlen(limitDelimiter), limitEnd - limitStart - strlen(limitDelimiter));
++                ereport(LOG, (errmsg("limitString: %s\n", limitString)));
++
++                //table
++                const char* fromStart = strstr(sql, fromDelimiter);
++                const char* fromEnd = strstr(fromStart, tableDelimiter);
++                char* fromString = strndup(fromStart + strlen(fromDelimiter), fromEnd - fromStart - strlen(fromDelimiter));
++                ereport(LOG, (errmsg("fromString: %s\n", fromString)));
++
++                strcpy(result, "select * from multicol_topk('");
++                strcat(result, fromString);
++                strcat(result, "',");
++                strcat(result, limitString);
++                strcat(result, ", ");
++                char buff[10] = { 0 };
++                strcat(result, termCond);
++                strcat(result, ", ");
++                strcat(result, "'");
++                strcat(result, selectString);
++                strcat(result, "',");
++                strcat(result, "'");
++                if (whereStart != NULL)
++                {
++                        strcat(result, whereString);
++                }
++                strcat(result, "',");
++                strcat(result, "'");
++                strcat(result, orderByString);
++                strcat(result, "',");
++
++                for (int i = 0; i < orderLength; i++)
++                {
++                        strcat(result, "'");
++                        strcat(result, order[i]);
++                        strcat(result, "'");
++                        if (i < orderLength - 1) {
++                                strcat(result, ",");
++                        }
++                }
++                strcat(result, ");");
++
++                ereport(LOG,(errmsg("result: %s\n", result)));
++                query_string = result;
++		
++                pfree(orderByString);
++		pfree(orderByItemsString);
++		for (int i = 0; i < orderLength; i++)
++		{
++			pfree(order[i]);
++		}
++		pfree(selectString);
++		pfree(whereString);
++		pfree(limitString);
++		pfree(fromString);
++                pfree(sql);
++        }
+ 					if (am_walsender)
+ 					{
+ 						if (!exec_replication_command(query_string))
+@@ -4337,8 +4665,9 @@ PostgresMain(int argc, char *argv[],
+ 					}
+ 					else
+ 						exec_simple_query(query_string);
+-
++                                        
+ 					send_ready_for_query = true;
++                                        pfree(result);
+ 				}
+ 				break;
+ 
