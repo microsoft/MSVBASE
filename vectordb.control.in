@@ -1,0 +1,4 @@
+comment = 'vector data type and ivfflat access method'
+default_version = '${PROJECT_VERSION}'
+module_pathname = '$libdir/${PROJECT_NAME}'
+relocatable = true

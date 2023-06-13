@@ -1,14 +1,44 @@
-# Project
+# MSVBASE
 
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
+MSVBASE is a system that efficiently supports complex queries of both approximate similarity search and relational operators. It integrates high-dimensional vector indices into PostgreSQL, a relational database to facilitate complex approximate similarity queries.
 
-As the maintainer of this project, please make a few updates:
+## **Build Docker**
+### **Clone and Patch**
+```
+git clone https://github.com/microsoft/MSVBASE.git
+git submodule update --init --recursive
+./scripts/patch.sh
+```
+### **Build**
+```
+./scripts/dockerbuild.sh
+```
 
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+### **Run**
+```
+./scripts/dockerbuild.sh
+```
+
+## **SQL**
+It is compatible with PostgreSQL syntax and protocols, supporting vector distance calculations for L2 and Inner product. It also supports hnsw and sptag indexes. Soon, we will be introducing spann and more indexes. Stay tuned!
+### **Command Line**
+```
+docker exec -it --privileged --user=root vbase_open_source bash
+psql -U vectordb
+```
+### **Example**
+```
+create database test;
+\c test;
+create extension vectordb;
+create table t_table(id int, price int, m_vector_1 float8[10]);
+insert into t_table values(1, 10, '{1,2,3,4,5,6,7,8,9,0}');
+insert into t_table values(2, 20, '{5,6,7,1,2,3,4,8,9,1}');
+insert into t_table values(3, 30, '{9,8,7,6,5,4,3,2,1,0}');
+create index t4_index on t_table using hnsw(m_vector_1) with(dimension=10,distmethod=l2_distance);
+set enable_seqscan=false;
+select id from t_table where price > 15 order by m_vector_1 <-> '{5,9,8,6,2,1,1,0,4,3}' limit 1;
+```
 
 ## Contributing
 

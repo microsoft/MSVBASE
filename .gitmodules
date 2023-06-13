@@ -1,0 +1,9 @@
+[submodule "thirdparty/Postgres"]
+	path = thirdparty/Postgres
+	url = https://github.com/postgres/postgres.git
+[submodule "thirdparty/hnsw"]
+	path = thirdparty/hnsw
+	url = https://github.com/nmslib/hnswlib.git
+[submodule "thirdparty/SPTAG"]
+	path = thirdparty/SPTAG
+	url = https://github.com/microsoft/SPTAG.git
