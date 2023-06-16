@@ -25,7 +25,7 @@ stages:
         targetType: 'inline'
         script: |
           # Write your commands here
-          export GIT_LFS_SKIP_SMUDGE=1 && git submodule update --init --recursive && ./scripts/patch.sh
+          export GIT_LFS_SKIP_SMUDGE=1 && git submodule update --init --recursive && chmod +x -R./scripts  &&./scripts/patch.sh
     - task: Docker@2
       displayName: Build an image
       inputs:
