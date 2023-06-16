@@ -1,5 +1,5 @@
-FROM debian:bullseye-slim
-
+#FROM debian:bullseye-slim
+FROM gcc:12.3.0
 # make the "en_US.UTF-8" locale so postgres will be utf-8 enabled by default
 ENV LANG en_US.utf8
 ENV PG_MAJOR 13
@@ -24,7 +24,7 @@ RUN set -ex \
     procps \
     sysstat \
     libldap2-dev \
-    python-dev \
+    python3-dev \
     libreadline-dev \
     libssl-dev \
     bison \
@@ -37,49 +37,49 @@ RUN set -ex \
     make \
     gcc \
     unzip \
-    python \
+    python3 \
     locales \
     wget \
     \
-    && rm -rf /var/lib/apt/lists/* \
+  #  && rm -rf /var/lib/apt/lists/* \
     && localedef -i en_US -c -f UTF-8 en_US.UTF-8
 
 RUN apt-get update && \
-	apt-get install -y --no-install-recommends wget git golang-go python-dev swig vim\
+	apt-get install -y --no-install-recommends wget git golang-go  swig vim\
     libboost-filesystem-dev libboost-test-dev libboost-serialization-dev libboost-regex-dev libboost-serialization-dev libboost-regex-dev libboost-thread-dev libboost-system-dev
 
-RUN wget "https://boostorg.jfrog.io/artifactory/main/release/1.71.0/source/boost_1_71_0.tar.gz" --no-check-certificate -q -O - \
+RUN wget "https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.gz" --no-check-certificate -q -O - \
         | tar -xz && \
-        cd boost_1_71_0 && \
+        cd boost_1_81_0 && \
         ./bootstrap.sh && \
         ./b2 install && \
         ldconfig && \
-        cd .. && rm -rf boost_1_71_0
+        cd .. && rm -rf boost_1_81_0
 
 RUN wget "https://github.com/Kitware/CMake/releases/download/v3.14.4/cmake-3.14.4-Linux-x86_64.tar.gz" --no-check-certificate -q -O - \
 	| tar -xz --strip-components=1 -C /usr/local
 
-RUN apt-get install -y software-properties-common && add-apt-repository 'deb http://archive.debian.org/debian stretch stretch-security main contrib non-free' && apt-get update && apt-get install -y openjdk-8-jdk
+#RUN apt-get install -y software-properties-common && add-apt-repository 'deb http://archive.debian.org/debian stretch stretch-security main contrib non-free' && apt-get update && apt-get install -y openjdk-8-jdk
 
-RUN apt install -y pip && pip install numpy && pip install pandas
+#RUN apt install -y pip && pip install numpy && pip install pandas
 
 RUN git config --global http.sslverify false
 
-RUN wget http://ftp.gnu.org/gnu/gcc/gcc-12.2.0/gcc-12.2.0.tar.gz \
-    && tar -zxvf gcc-12.2.0.tar.gz \
-    && cd gcc-12.2.0 \
-    && ./contrib/download_prerequisites \
-    && mkdir build \
-    && cd build/ \
-    && ../configure -enable-checking=release -enable-languages=c,c++ -disable-multilib \
-    && make -j$(nproc) \
-    && make install \
-    && rm /usr/bin/gcc \
-    && ln -s /usr/local/bin/gcc /usr/bin/gcc \
-    && rm /usr/bin/g++ \
-    && ln -s /usr/local/bin/g++ /usr/bin/g++ \
-    && rm /usr/lib/x86_64-linux-gnu/libstdc++.so.6 \
-    && ln -s /usr/local/lib64/libstdc++.so.6.0.30 /usr/lib/x86_64-linux-gnu/libstdc++.so.6
+#RUN wget http://ftp.gnu.org/gnu/gcc/gcc-12.2.0/gcc-12.2.0.tar.gz \
+#    && tar -zxvf gcc-12.2.0.tar.gz \
+#    && cd gcc-12.2.0 \
+#    && ./contrib/download_prerequisites \
+#    && mkdir build \
+#    && cd build/ \
+#    && ../configure -enable-checking=release -enable-languages=c,c++ -disable-multilib \
+#    && make -j4 \
+#    && make install \
+#    && rm /usr/bin/gcc \
+#    && ln -s /usr/local/bin/gcc /usr/bin/gcc \
+#    && rm /usr/bin/g++ \
+#    && ln -s /usr/local/bin/g++ /usr/bin/g++ \
+#    && rm /usr/lib/x86_64-linux-gnu/libstdc++.so.6 \
+#    && ln -s /usr/local/lib64/libstdc++.so.6.0.30 /usr/lib/x86_64-linux-gnu/libstdc++.so.6
 
 RUN mkdir /u01/ \
     \
@@ -135,12 +135,12 @@ RUN cd /tmp/vectordb && \
 	make install
 
 # the followings two commands install an http-client library called curlpp
-RUN apt-get update && apt-get install -y libcurl4-openssl-dev pkg-config
-RUN git clone https://github.com/jpbarrette/curlpp.git && cd curlpp && \
-    git reset --hard  592552a && \
-    mkdir build && cd build && \
-    cmake .. && make -j$(nproc) && \
-    make install
+#RUN apt-get update && apt-get install -y libcurl4-openssl-dev pkg-config
+#RUN git clone https://github.com/jpbarrette/curlpp.git && cd curlpp && \
+#    git reset --hard  592552a && \
+#    mkdir build && cd build && \
+#    cmake .. && make -j$(nproc) && \
+#    make install
 
 ENV PATH="${PATH}:/usr/local/lib"
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/local/lib"
@@ -149,4 +149,5 @@ ENV LANG en_US.utf8
 USER postgres
 EXPOSE 5432
 ENTRYPOINT ["docker-entrypoint.sh"]
+#ENTRYPOINT ["sleep","infinity"]
 

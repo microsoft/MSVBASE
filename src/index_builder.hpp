@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 #ifndef INDEX_BUILDER_HPP
 #define INDEX_BUILDER_HPP
 

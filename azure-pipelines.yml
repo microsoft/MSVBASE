@@ -1,0 +1,30 @@
+# Docker
+# Build a Docker image
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+- main
+
+resources:
+- repo: self
+
+variables:
+  tag: '$(Build.BuildId)'
+
+stages:
+- stage: Build
+  displayName: Build image
+  jobs:
+  - job: Build
+    timeoutInMinutes: 300
+    cancelTimeoutInMinutes: 300
+    displayName: Build
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: Bash@3
+      inputs:
+        targetType: 'inline'
+        script: |
+          # Write your commands here
+          export GIT_LFS_SKIP_SMUDGE=1 && git submodule update --init --recursive && chmod +x -R scripts  &&./scripts/patch.sh && ./scripts/dockerbuild.sh

@@ -1,3 +1,6 @@
+-- Copyright (c) Microsoft Corporation. All rights reserved.
+-- Licensed under the MIT License.
+
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION vectordb" to load this file. \quit
 
@@ -84,6 +87,16 @@ CREATE ACCESS METHOD pase_hnsw TYPE INDEX HANDLER pase_hnsw_handler;
 
 COMMENT ON ACCESS METHOD pase_hnsw IS 'pase hnsw index access method';
 
+
+-- spann index handlers
+
+CREATE FUNCTION spann_handler(internal) RETURNS index_am_handler
+	AS 'MODULE_PATHNAME' LANGUAGE C;
+
+CREATE ACCESS METHOD spann TYPE INDEX HANDLER spann_handler;
+
+COMMENT ON ACCESS METHOD spann IS 'sptag index access method';
+
 -- opclass
 -- Operator Classes are used to provide the information required by the index, which is defined and consumed by the index access methods.
 -- For more details, see https://www.postgresql.org/docs/13/xindex.html.
@@ -116,6 +129,15 @@ CREATE OPERATOR CLASS pase_hnsw_vector_inner_product_ops
 	FOR TYPE float8[] USING pase_hnsw AS
 	OPERATOR 1 <*> (float8[], float8[]) FOR ORDER BY float_ops;
 
+CREATE OPERATOR CLASS spann_vector_l2_ops
+	DEFAULT FOR TYPE float8[] USING spann AS
+	OPERATOR 1 <-> (float8[], float8[]) FOR ORDER BY float_ops,
+	OPERATOR 2 <<->> (float8[], float8[]);
+
+CREATE OPERATOR CLASS spann_vector_inner_product_ops
+	FOR TYPE float8[] USING spann AS
+	OPERATOR 1 <*> (float8[], float8[]) FOR ORDER BY float_ops,
+	OPERATOR 2 <<*>> (float8[], float8[]);
 -- topk hack
 -- rank_expression left as '' will default to summation of all orderby expression
 -- term_cond is the number of consecutive drops of table row after a priority queue is stable

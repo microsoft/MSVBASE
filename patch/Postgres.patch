@@ -1,3 +1,21 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
+diff --git a/src/pl/plpython/plpython.h b/src/pl/plpython/plpython.h
+index 6d981a0a06..e10bc659ef 100644
+--- a/src/pl/plpython/plpython.h
++++ b/src/pl/plpython/plpython.h
+@@ -94,8 +94,8 @@
+ #undef TEXTDOMAIN
+ #define TEXTDOMAIN PG_TEXTDOMAIN("plpython")
+
+-#include <compile.h>
+-#include <eval.h>
++//#include <compile.h>
++//#include <eval.h>
+
+ /* put back our *printf macros ... this must match src/include/port.h */
+ #ifdef vsnprintf
 diff --git a/src/backend/access/index/indexam.c b/src/backend/access/index/indexam.c
 index 6b9750c244..11e6a6f47b 100644
 --- a/src/backend/access/index/indexam.c
@@ -219,3 +237,261 @@ index 9e76666fe9..ba12c22b94 100644
  extern void tuplesort_puttupleslot(Tuplesortstate *state,
  								   TupleTableSlot *slot);
  extern void tuplesort_putheaptuple(Tuplesortstate *state, HeapTuple tup);
+diff --git a/src/backend/tcop/postgres.c b/src/backend/tcop/postgres.c
+index 1342c18c74..484a9f4773 100644
+--- a/src/backend/tcop/postgres.c
++++ b/src/backend/tcop/postgres.c
+@@ -3783,7 +3783,82 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
+ #endif
+ }
+ 
++char* strndup(const char* str, size_t n) {
++	size_t len = strlen(str);
++	size_t copyLen = (n < len) ? n : len;
++	char* copy = (char*)palloc(copyLen + 1);
++	if (copy == NULL)
++	{
++		return NULL;
++	}
++
++	memcpy(copy, str, copyLen);
++	copy[copyLen] = '\0';
++	return copy;
++}
++
++char* lowercase(const char* str)
++{
++	size_t copyLen = strlen(str);
++	char* copy = (char*)palloc(copyLen + 1);
++	if (copy == NULL) {
++		return NULL;
++	}
++	size_t i = 0;
++	size_t j = 0;
++	while (i < copyLen)
++	{
++		if (str[i] == ' ')
++		{
++			copy[j] = ' ';
++			i++;
++			j++;
++			while (str[i] == ' ')
++			{
++				i++;
++			}
++		}
++		else
++		{
++			copy[j] = tolower(str[i]);
++			i++;
++			j++;
++		}
++	}
++	copy[j] = '\0';
++	return copy;
++}
+ 
++void removeSpace(char* str)
++{
++	int start = 0;
++	int end = 0;
++	for (int i = 0; i < strlen(str); i++)
++	{
++		if (str[i] != ' ')
++		{
++			start = i;
++			break;
++		}
++	}
++
++	for (int i = strlen(str) - 1; i >= 0; i--)
++	{
++		if (str[i] != ' ')
++		{
++			end = i;
++			break;
++		}
++	}
++	int i = 0;
++	while (start <= end)
++	{
++		str[i] = str[start];
++		i++;
++		start++;
++	}
++	str[i] = '\0';
++}
+ /* ----------------------------------------------------------------
+  * PostgresMain
+  *	   postgres main loop -- all backends, interactive or otherwise start here
+@@ -4329,6 +4404,162 @@ PostgresMain(int argc, char *argv[],
+ 
+ 					query_string = pq_getmsgstring(&input_message);
+ 					pq_getmsgend(&input_message);
++					/* Parse multi topk statement */
++					//const char* inputSql = "SELECT id FROM table WHERE price>10 
++					//ORDER    BY approximate_sum(    '0.5 *   vector1<->{1,2,3} + vector2<->{5,6,7} + vector3<->{8,9,0}' ) limit 5;";
++					char* sql = lowercase(query_string);
++					ereport(LOG, (errmsg("originial low canse string: %s\n", sql)));
++
++					const char* whereDelimiter = "where";
++					const char* orderByDelimiter = "order by";
++					const char* selectDelimiter = "select";
++					const char* fromDelimiter = "from";
++					const char* approximateSumDelimiter = "approximate_sum(";
++					const char* endDelimiter = ")";
++					const char* limitDelimiter = "limit";
++					const char* semicolonDelimiter = ";";
++					const char* ef = "50";
++					const char* termCond = "50";
++					char* result = (char*)palloc(strlen(sql) * 2);
++					const char* approximateSumStart = strstr(sql, approximateSumDelimiter);
++					if (approximateSumStart != NULL)
++					{
++						char* select;
++						char* table;
++						char* where;
++						char* order[100];
++						size_t orderLength = 0;
++						size_t limit;
++
++						ereport(LOG, (errmsg("approximateSumStart: %s\n", approximateSumStart)));
++						const char* approximateSumEnd = strstr(approximateSumStart, limitDelimiter);
++						char* orderByString = strndup(approximateSumStart + strlen(approximateSumDelimiter), 
++								approximateSumEnd - approximateSumStart - strlen(approximateSumDelimiter));
++						size_t last = strlen(orderByString) - 1;
++						size_t first = 0;
++						size_t second = 0;
++						while (orderByString[first] != '\'')
++						{
++							first++;
++						}
++						first++;
++						while (orderByString[first] != '\0')
++						{
++							orderByString[second] = orderByString[first];
++							first++;
++							second++;
++						}
++						orderByString[second] = '\0';
++						while (orderByString[last] != '\)')
++						{
++							last--;
++						}
++						while (orderByString[last] != '\'')
++						{
++							last--;
++						}
++
++						orderByString[last] = '\0';
++						removeSpace(orderByString);
++						ereport(LOG,(errmsg("orderByString: %s\n", orderByString)));
++
++						char* orderByItemsString = strndup(orderByString, strlen(orderByString));
++						char* token = strtok(orderByItemsString, "+");
++						int i = 0;
++						while (token != NULL) 
++						{
++							orderLength++;
++							order[i] = strndup(token, strlen(token));
++							removeSpace(order[i]);
++							ereport(LOG, (errmsg("order token: %s\n", order[i])));
++							token = strtok(NULL, "+");
++							i++;
++						}
++
++						//id
++						const char* selectStart = strstr(sql, selectDelimiter);
++						const char* selectEnd = strstr(selectStart, fromDelimiter);
++						char* selectString = strndup(selectStart + strlen(selectDelimiter), 
++								selectEnd - selectStart - strlen(selectDelimiter));
++						removeSpace(selectString);
++						ereport(LOG, (errmsg("selectString: %s\n", selectString)));
++
++						const char* tableDelimiter = orderByDelimiter;
++						//price > 10
++						char* whereString = NULL;
++						const char* whereStart = strstr(sql, whereDelimiter);
++						if (whereStart != NULL)
++						{
++							const char* whereEnd = strstr(whereStart, orderByDelimiter);
++							whereString = strndup(whereStart + strlen(whereDelimiter), 
++									whereEnd - whereStart - strlen(whereDelimiter));
++							removeSpace(whereString);
++							tableDelimiter = whereDelimiter;
++							ereport(LOG, (errmsg("whereString: %s\n", whereString)));
++						}
++						//limit 5;
++						const char* limitStart = strstr(sql, limitDelimiter);
++						const char* limitEnd = strstr(limitStart, semicolonDelimiter);
++						char* limitString = strndup(limitStart + strlen(limitDelimiter), limitEnd - limitStart - strlen(limitDelimiter));
++						removeSpace(limitString);
++						ereport(LOG, (errmsg("limitString: %s\n", limitString)));
++ 
++						//table
++						const char* fromStart = strstr(sql, fromDelimiter);
++						const char* fromEnd = strstr(fromStart, tableDelimiter);
++						char* fromString = strndup(fromStart + strlen(fromDelimiter), fromEnd - fromStart - strlen(fromDelimiter));
++						removeSpace(fromString);
++						ereport(LOG, (errmsg("fromString: %s\n", fromString)));
++
++						strcpy(result, "select topk('");
++						strcat(result, fromString);
++						strcat(result, "',");
++						strcat(result, limitString);
++						strcat(result, ", ");
++						strcat(result, ef);
++						strcat(result, ", ");
++						strcat(result, termCond);
++						strcat(result, ", ");
++						strcat(result, "'");
++						strcat(result, selectString);
++						strcat(result, "',");
++						strcat(result, "'");
++						if (whereStart != NULL)
++						{
++							strcat(result, whereString);
++						}
++						strcat(result, "',");
++						strcat(result, "'");
++						strcat(result, orderByString);
++						strcat(result, "',");
++ 
++						for (int i = 0; i < orderLength; i++)
++						{
++							strcat(result, "'");
++							strcat(result, order[i]);
++							strcat(result, "'");
++							if (i < orderLength - 1)
++							{
++								strcat(result, ",");
++							}
++						}
++						strcat(result, ");");
++ 
++						ereport(LOG,(errmsg("result: %s\n", result)));
++						query_string = result;
++
++						pfree(orderByString);
++						pfree(orderByItemsString);
++						for (int i = 0; i < orderLength; i++)
++						{
++							pfree(order[i]);
++						}
++						pfree(selectString);
++						pfree(whereString);
++						pfree(limitString);
++						pfree(fromString);
++						pfree(sql);
++					}
+ 
+ 					if (am_walsender)
+ 					{
+@@ -4339,6 +4570,7 @@ PostgresMain(int argc, char *argv[],
+ 						exec_simple_query(query_string);
+ 
+ 					send_ready_for_query = true;
++					pfree(result);
+ 				}
+ 				break;
+ 

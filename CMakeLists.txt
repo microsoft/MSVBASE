@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+
 cmake_minimum_required(VERSION 3.14.0)
 project(vectordb VERSION 0.1.0)
 
@@ -84,6 +87,8 @@ add_library(${PROJECT_NAME} SHARED
     src/model_mng.cpp
     src/topk.cpp
     src/multicol_topk.cpp
+    src/spannindex.cpp
+    src/spannindex_scan.cpp
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_14)
@@ -111,28 +116,29 @@ endif(WIN32)
 
 ## Find PostgreSQL Paths
 
-foreach(suffix ${PostgreSQL_KNOWN_VERSIONS})
-  if(WIN32)
-    list(APPEND PostgreSQL_BINARY_ADDITIONAL_SEARCH_SUFFIXES
-        "PostgreSQL/${suffix}/bin")
-  endif()
-  if(UNIX)
-    list(APPEND PostgreSQL_BINARY_ADDITIONAL_SEARCH_SUFFIXES
-        "postgresql${suffix}"
-        "postgresql/${suffix}"
-        "pgsql-${suffix}/bin")
-  endif()
-endforeach()
-find_program(PostgreSQL_PG_CONFIG pg_config
-NAMES ${ARGN}
-PATHS
-  ${PostgreSQL_ROOT_DIRECTORIES}
-PATH_SUFFIXES
-  bin
-  ${PostgreSQL_BINARY_ADDITIONAL_SEARCH_SUFFIXES}
+#foreach(suffix ${PostgreSQL_KNOWN_VERSIONS})
+#  if(WIN32)
+#    list(APPEND PostgreSQL_BINARY_ADDITIONAL_SEARCH_SUFFIXES
+#        "PostgreSQL/${suffix}/bin")
+#  endif()
+#  if(UNIX)
+#    list(APPEND PostgreSQL_BINARY_ADDITIONAL_SEARCH_SUFFIXES
+#        "postgresql${suffix}"
+#        "postgresql/${suffix}"
+#        "pgsql-${suffix}/bin")
+#  endif()
+#endforeach()
+#find_program(PostgreSQL_PG_CONFIG pg_config
+#NAMES ${ARGN}
+#PATHS
+#  ${PostgreSQL_ROOT_DIRECTORIES}
+#PATH_SUFFIXES
+#  bin
+#  ${PostgreSQL_BINARY_ADDITIONAL_SEARCH_SUFFIXES}
 # Help the user find it if we cannot.
-DOC "Set the PostgreSQL_BINARY_DIR cmake cache entry to the top-level directory containing the PostgreSQL binaries."
-)
+#DOC "Set the PostgreSQL_BINARY_DIR cmake cache entry to the top-level directory containing the PostgreSQL binaries."
+#)
+set(PostgreSQL_PG_CONFIG  /u01/app/postgres/product/13.4/bin/pg_config)
 if (NOT PostgreSQL_PG_CONFIG)
     message(FATAL_ERROR "Unable to find 'pg_config'")
 endif ()

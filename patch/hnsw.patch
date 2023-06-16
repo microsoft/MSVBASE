@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index e2f3d71..ba4d36d 100644
 --- a/CMakeLists.txt
@@ -149,16 +152,16 @@ index 2426040..fb2b7cc 100644
          std::priority_queue<std::pair<dist_t, labeltype >>
          searchKnn(const void *query_data, size_t k) const {
 diff --git a/hnswlib/hnswalg.h b/hnswlib/hnswalg.h
-index e95e0b5..a26f1dd 100644
+index e95e0b5..e6209cc 100644
 --- a/hnswlib/hnswalg.h
 +++ b/hnswlib/hnswalg.h
 @@ -52,9 +52,10 @@ namespace hnswlib {
                  throw std::runtime_error("Not enough memory");
- 
+
              cur_element_count = 0;
 -
              visited_list_pool_ = new VisitedListPool(1, max_elements);
- 
+
 +            //workSpacePool_ = std::make_unique<WorkSpacePool<dist_t>>(10);
 +
              //initializations for special treatment of the first node
@@ -167,23 +170,37 @@ index e95e0b5..a26f1dd 100644
 @@ -99,6 +100,7 @@ namespace hnswlib {
          double mult_, revSize_;
          int maxlevel_;
- 
+
 +        //std::unique_ptr<WorkSpacePool<dist_t>> workSpacePool_;
- 
+
          VisitedListPool *visited_list_pool_;
          std::mutex cur_element_count_guard_;
-@@ -241,6 +243,7 @@ namespace hnswlib {
+@@ -151,6 +153,13 @@ namespace hnswlib {
+             return (int) r;
+         }
+
++        bool traverse(tableint id, std::uint64_t &label) {
++            if (id >= cur_element_count) {
++                return false;
++            }
++            label = getExternalLabel(id);
++            return true;
++        }
+
+         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+         searchBaseLayer(tableint ep_id, const void *data_point, int layer) {
+@@ -241,6 +250,7 @@ namespace hnswlib {
          std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
          searchBaseLayerST(tableint ep_id, const void *data_point, size_t ef) const {
              VisitedList *vl = visited_list_pool_->getFreeVisitedList();
 +
              vl_type *visited_array = vl->mass;
              vl_type visited_array_tag = vl->curV;
- 
-@@ -325,6 +328,65 @@ namespace hnswlib {
+
+@@ -325,6 +335,65 @@ namespace hnswlib {
              return top_candidates;
          }
- 
+
 +        template <bool has_deletions, bool collect_metrics = false>
 +        void searchBaseLayerSTIterative(const void* data_point, WorkSpace<dist_t>* workspace, QueryResult<dist_t>& query_result) const {
 +            VisitedList* vl = workspace->vl;
@@ -246,71 +263,71 @@ index e95e0b5..a26f1dd 100644
          void getNeighborsByHeuristic2(
                  std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_candidates,
          const size_t M) {
-@@ -1167,6 +1229,69 @@ namespace hnswlib {
+@@ -1167,6 +1236,69 @@ namespace hnswlib {
              return result;
          };
- 
+
 +
-+		std::shared_ptr<WorkSpace<dist_t>> getFreeWorkSpace() const {
-+			VisitedList* v = visited_list_pool_->getFreeVisitedList();
-+			//std::shared_ptr<WorkSpace<dist_t>> workSpace = workSpacePool_->getFreeWorkSpace();
++               std::shared_ptr<WorkSpace<dist_t>> getFreeWorkSpace() const {
++                       VisitedList* v = visited_list_pool_->getFreeVisitedList();
++                       //std::shared_ptr<WorkSpace<dist_t>> workSpace = workSpacePool_->getFreeWorkSpace();
 +            std::shared_ptr<WorkSpace<dist_t>> workSpace = std::make_shared<WorkSpace<dist_t>>();
-+			workSpace->Reset(v);
-+			return workSpace;
-+		}
++                       workSpace->Reset(v);
++                       return workSpace;
++               }
 +
 +        void searchKnnIterative(const void* query_data, WorkSpace<dist_t>* workspace, QueryResult<dist_t>& query_result, bool isFirst) const {
 +            if (cur_element_count == 0) return;
 +            tableint currObj;
-+			if (isFirst) {
-+				currObj = enterpoint_node_;
-+				dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
++                       if (isFirst) {
++                               currObj = enterpoint_node_;
++                               dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
 +
-+				for (int level = maxlevel_; level > 0; level--) {
-+					bool changed = true;
-+					while (changed) {
-+						changed = false;
-+						unsigned int* data;
++                               for (int level = maxlevel_; level > 0; level--) {
++                                       bool changed = true;
++                                       while (changed) {
++                                               changed = false;
++                                               unsigned int* data;
 +
-+						data = (unsigned int*)get_linklist(currObj, level);
-+						int size = getListCount(data);
-+						metric_hops++;
-+						metric_distance_computations += size;
++                                               data = (unsigned int*)get_linklist(currObj, level);
++                                               int size = getListCount(data);
++                                               metric_hops++;
++                                               metric_distance_computations += size;
 +
-+						tableint* datal = (tableint*)(data + 1);
-+						for (int i = 0; i < size; i++) {
-+							tableint cand = datal[i];
-+							if (cand < 0 || cand > max_elements_)
-+								throw std::runtime_error("cand error");
-+							dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
++                                               tableint* datal = (tableint*)(data + 1);
++                                               for (int i = 0; i < size; i++) {
++                                                       tableint cand = datal[i];
++                                                       if (cand < 0 || cand > max_elements_)
++                                                               throw std::runtime_error("cand error");
++                                                       dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
 +
-+							if (d < curdist) {
-+								curdist = d;
-+								currObj = cand;
-+								changed = true;
-+							}
-+						}
-+					}
-+				}
-+				dist_t dist = fstdistfunc_(query_data, getDataByInternalId(currObj), dist_func_param_);
-+				workspace->candidate_set.emplace(-dist, currObj);
-+			}
++                                                       if (d < curdist) {
++                                                               curdist = d;
++                                                               currObj = cand;
++                                                               changed = true;
++                                                       }
++                                               }
++                                       }
++                               }
++                               dist_t dist = fstdistfunc_(query_data, getDataByInternalId(currObj), dist_func_param_);
++                               workspace->candidate_set.emplace(-dist, currObj);
++                       }
 +
-+			if (num_deleted_) {
-+				searchBaseLayerSTIterative<true, true>(
-+					query_data, workspace, query_result);
-+			}
-+			else {
-+				searchBaseLayerSTIterative<false, true>(
-+					query_data, workspace, query_result);
-+			}
++                       if (num_deleted_) {
++                               searchBaseLayerSTIterative<true, true>(
++                                       query_data, workspace, query_result);
++                       }
++                       else {
++                               searchBaseLayerSTIterative<false, true>(
++                                       query_data, workspace, query_result);
++                       }
 +
-+		}
++               }
 +
 +        void searchIndexIterativeEnd(std::shared_ptr<WorkSpace<dist_t>> workspace) const {
-+			visited_list_pool_->releaseVisitedList(workspace->vl);
++                       visited_list_pool_->releaseVisitedList(workspace->vl);
 +            workspace = nullptr;
-+			//workSpacePool_->releaseWorkSpace(workspace);
++                       //workSpacePool_->releaseWorkSpace(workspace);
 +        }
 +
          void checkIntegrity(){

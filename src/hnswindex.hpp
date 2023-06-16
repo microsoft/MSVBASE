@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 #ifndef HNSWINDEX_HPP
 #define HNSWINDEX_HPP
 
@@ -44,6 +47,16 @@ extern "C"
                                   Relation index,
                                   IndexInfo *indexInfo);
 
+    bool hnsw_insert(Relation index,
+	Datum* values,
+	bool* isnull,
+	ItemPointer heap_tid,
+	Relation heapRelation,
+	IndexUniqueCheck checkUnique,
+	IndexInfo* indexInfo);
+
+    IndexBulkDeleteResult* hnsw_bulkdelete(IndexVacuumInfo* info, IndexBulkDeleteResult* stats,
+        IndexBulkDeleteCallback callback, void* callback_state);
     /*
      * Prepare for an index scan
      */
