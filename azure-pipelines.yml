@@ -20,7 +20,12 @@ stages:
     pool:
       vmImage: ubuntu-latest
     steps:
-    - task: Docker@2
+    - task: SSH@0
+       inputs:
+       runOptions: 'commands'
+       commands: 'git submodule update --init --recursive && ./scripts/patch.sh'
+       readyTimeout: '20000' 
+   - task: Docker@2
       displayName: Build an image
       inputs:
         command: build
