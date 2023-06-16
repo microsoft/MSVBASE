@@ -16,6 +16,8 @@ stages:
   displayName: Build image
   jobs:
   - job: Build
+    timeoutInMinutes: 300
+    cancelTimeoutInMinutes: 300
     displayName: Build
     pool:
       vmImage: ubuntu-latest
