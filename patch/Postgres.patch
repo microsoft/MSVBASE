@@ -1,3 +1,18 @@
+diff --git a/src/pl/plpython/plpython.h b/src/pl/plpython/plpython.h
+index 6d981a0a06..e10bc659ef 100644
+--- a/src/pl/plpython/plpython.h
++++ b/src/pl/plpython/plpython.h
+@@ -94,8 +94,8 @@
+ #undef TEXTDOMAIN
+ #define TEXTDOMAIN PG_TEXTDOMAIN("plpython")
+
+-#include <compile.h>
+-#include <eval.h>
++//#include <compile.h>
++//#include <eval.h>
+
+ /* put back our *printf macros ... this must match src/include/port.h */
+ #ifdef vsnprintf
 diff --git a/src/backend/access/index/indexam.c b/src/backend/access/index/indexam.c
 index 6b9750c244..11e6a6f47b 100644
 --- a/src/backend/access/index/indexam.c
