@@ -72,7 +72,7 @@ RUN wget http://ftp.gnu.org/gnu/gcc/gcc-12.2.0/gcc-12.2.0.tar.gz \
     && mkdir build \
     && cd build/ \
     && ../configure -enable-checking=release -enable-languages=c,c++ -disable-multilib \
-    && make -j$(nproc) \
+    && make -j4 \
     && make install \
     && rm /usr/bin/gcc \
     && ln -s /usr/local/bin/gcc /usr/bin/gcc \
