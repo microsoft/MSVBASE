@@ -84,6 +84,8 @@ add_library(${PROJECT_NAME} SHARED
     src/model_mng.cpp
     src/topk.cpp
     src/multicol_topk.cpp
+    src/spannindex.cpp
+    src/spannindex_scan.cpp
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_14)
