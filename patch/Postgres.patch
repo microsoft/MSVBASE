@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 diff --git a/src/pl/plpython/plpython.h b/src/pl/plpython/plpython.h
 index 6d981a0a06..e10bc659ef 100644
 --- a/src/pl/plpython/plpython.h

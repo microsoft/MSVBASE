@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
 
 /artifacts/vbase/scripts/query_1.sh
 /artifacts/vbase/scripts/query_2.sh

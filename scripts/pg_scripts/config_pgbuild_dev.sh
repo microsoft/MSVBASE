@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+
 PG_VERSION="13.4"
 PG_INSTALL_DIR="/u01/app/postgres/product/$PG_VERSION"
 

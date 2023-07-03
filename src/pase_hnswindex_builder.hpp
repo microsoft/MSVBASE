@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 #ifndef PASE_HNSWINDEX_BUILDER_HPP
 #define PASE_HNSWINDEX_BUILDER_HPP
 

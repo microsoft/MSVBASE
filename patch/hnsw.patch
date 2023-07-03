@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index e2f3d71..ba4d36d 100644
 --- a/CMakeLists.txt

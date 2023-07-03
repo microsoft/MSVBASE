@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+
 import numpy as np
 
 import argparse
@@ -5,9 +8,6 @@ import argparse
 import struct
 
 import pandas as pd
-
-
-
 
 def process_args():
     parser = argparse.ArgumentParser()

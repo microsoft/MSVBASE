@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 #include "spannindex_scan.hpp"
 
 std::map<std::string, std::shared_ptr<SPTAG::VectorIndex>>

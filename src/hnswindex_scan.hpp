@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 #ifndef HNSWINDEX_SCAN_HPP
 #define HNSWINDEX_SCAN_HPP
 

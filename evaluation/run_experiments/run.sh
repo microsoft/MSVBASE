@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+
 DIRPATH=$(dirname "$0")
 PATH_DIR="${DIRPATH}"
 docker exec --privileged --user=root vbase_evaluation bash -c "apt install -y  python3-numpy python3-pandas"

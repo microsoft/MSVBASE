@@ -1,4 +1,7 @@
 #/bin/bash
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+
 mkdir /artifacts/vbase/query_run/table4/sql
 mkdir /artifacts/vbase/query_run/table4/result
 mkdir /artifacts/vbase/query_run/table5/sql

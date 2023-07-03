@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 #ifndef SPANNINDEX_HPP
 #define SPANNINDEX_HPP
 

@@ -16,7 +16,7 @@ git submodule update --init --recursive
 
 ### **Run**
 ```
-./scripts/dockerbuild.sh
+./scripts/dockerrun.sh
 ```
 
 ## **SQL**

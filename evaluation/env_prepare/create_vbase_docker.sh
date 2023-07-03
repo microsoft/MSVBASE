@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+
 sudo mkdir /dev/shm/vbase_artifacts
 sudo chmod 777 /dev/shm/vbase_artifacts
 DIRPATH=$(dirname "$0")

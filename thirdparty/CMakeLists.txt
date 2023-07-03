@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+
 find_package(OpenMP REQUIRED)
 set (LIBRARYONLY ON)
 set(SPTAG_SOURCE "${CMAKE_CURRENT_LIST_DIR}/SPTAG")

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+
 diff --git a/AnnService/CoreLibrary.vcxproj b/AnnService/CoreLibrary.vcxproj
 index 78295d0..4f0f2b2 100644
 --- a/AnnService/CoreLibrary.vcxproj
