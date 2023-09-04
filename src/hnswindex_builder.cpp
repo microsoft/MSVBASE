@@ -42,7 +42,7 @@ void HNSWIndexBuilder::ConstructInternalBuilder(DistanceMethod distance_method)
         exit(1);
     }
     vector_index = std::make_shared<hnswlib::HierarchicalNSW<float>>(
-        distance.get(), m_indtuples);
+        distance.get(), m_indtuples * 10);
 }
 
 void HNSWComputeElementsCallback(Relation index,
