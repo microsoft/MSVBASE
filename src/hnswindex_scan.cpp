@@ -48,3 +48,35 @@ void HNSWIndexScan::EndScan(
 {
     resultIterator->Close();
 }
+
+bool HNSWIndexScan::Insert(Relation indexRelation,
+    Datum* values,
+    bool* isnull,
+    ItemPointer heap_tid,
+    Relation heapRelation,
+    IndexUniqueCheck checkUnique,
+    IndexInfo* indexInfo)
+{
+    if (*isnull)
+    {
+        return true;
+    }
+
+    // retrieve array and perform some checks
+    auto array = convert_array_to_vector(value);
+    if (static_cast<size_t>(m_numDimension) != array.size())
+    {
+        ereport(ERROR,
+            (errcode(ERRCODE_DATA_EXCEPTION),
+                errmsg("inconsistent array length, expected %d, found %ld",
+                    m_numDimension,
+                    array.size())));
+    }
+
+    std::int32_t blockId = ItemPointerGetBlockNumberNoCheck(heap_tid);
+    std::int32_t offset = ItemPointerGetOffsetNumberNoCheck(heap_tid);
+    std::uint64_t number = blockId;
+    number = (number << 32) + offset;
+    vector_index->addPoint((char*)array.data(), number);
+    return true;
+}

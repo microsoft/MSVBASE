@@ -28,6 +28,13 @@ public:
         std::shared_ptr<hnswlib::ResultIterator<float>> &resultIterator);
     static void EndScan(
         std::shared_ptr<hnswlib::ResultIterator<float>> &resultIterator);
+    static bool Insert(Relation indexRelation,
+        Datum* values,
+        bool* isnull,
+        ItemPointer heap_tid,
+        Relation heapRelation,
+        IndexUniqueCheck checkUnique,
+        IndexInfo* indexInfo);
     
     static std::map<std::string, std::shared_ptr<hnswlib::SpaceInterface<float>>> distanceFunction_map;
     static std::map<std::string, std::shared_ptr<hnswlib::HierarchicalNSW<float>>> vector_index_map;
