@@ -10,7 +10,21 @@
 #include <atomic>
 #include <map>
 #include <queue>
-
+extern "C"
+{
+#include <postgres.h>
+#include <access/genam.h>
+#include <utils/relcache.h>
+#include <access/tableam.h>
+#include <storage/block.h>
+#include <storage/bufmgr.h>
+#include <utils/array.h>
+#include <utils/elog.h>
+#include <utils/fmgrprotos.h>
+#include <utils/lsyscache.h>
+#include <utils/numeric.h>
+#include <utils/relcache.h>
+}
 class HNSWIndexScan
 {
 public:
@@ -28,14 +42,13 @@ public:
         std::shared_ptr<hnswlib::ResultIterator<float>> &resultIterator);
     static void EndScan(
         std::shared_ptr<hnswlib::ResultIterator<float>> &resultIterator);
-    static bool Insert(Relation indexRelation,
+    static bool Insert(const std::string &p_path,
         Datum* values,
         bool* isnull,
         ItemPointer heap_tid,
-        Relation heapRelation,
         IndexUniqueCheck checkUnique,
-        IndexInfo* indexInfo);
-    
+	int dim);
+
     static std::map<std::string, std::shared_ptr<hnswlib::SpaceInterface<float>>> distanceFunction_map;
     static std::map<std::string, std::shared_ptr<hnswlib::HierarchicalNSW<float>>> vector_index_map;
 };

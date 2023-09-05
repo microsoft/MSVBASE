@@ -88,7 +88,7 @@ Datum hnsw_handler(PG_FUNCTION_ARGS)
     // https://www.postgresql.org/docs/13/index-functions.html.
     amroutine->ambuild = hnsw_build;
     amroutine->ambuildempty = nullptr;     // TODO: index access method
-    amroutine->aminsert = nullptr;         // TODO: index access method
+    amroutine->aminsert = hnsw_insert;         // TODO: index access method
     amroutine->ambulkdelete = nullptr;     // TODO: index access method
     amroutine->amvacuumcleanup =
         hnsw_vacuumcleanup;
@@ -143,6 +143,37 @@ IndexBuildResult *hnsw_build(Relation heap,
         ereport(FATAL, errcode(0), errmsg("C++ exception"));
     }
     return result;
+}
+
+bool hnsw_insert(Relation index,
+	Datum* values,
+	bool* isnull,
+	ItemPointer heap_tid,
+	Relation heapRelation,
+	IndexUniqueCheck checkUnique,
+	IndexInfo* indexInfo)
+{
+	std::string path = std::string(DataDir) + std::string("/") +
+		std::string(DatabasePath) + std::string("/") +
+		std::string(RelationGetRelationName(index));
+	int dim = hnsw_ParaGetDimension(index);
+        switch(hnsw_ParaGetDistmethod(index))
+        {
+            case hnsw_Inner_Product:
+                HNSWIndexScan::LoadIndex(path, DistanceMethod::InnerProduct, dim);
+                break;
+            case hnsw_L2_Distance:
+                HNSWIndexScan::LoadIndex(path, DistanceMethod::L2, dim);
+                break;
+            default:
+                elog(ERROR, "hnsw index parameter value error.");
+        }	
+	return HNSWIndexScan::Insert(path,
+		values,
+		isnull,
+		heap_tid,
+		checkUnique,
+		dim);
 }
 
 IndexScanDesc hnsw_begin_scan(Relation index, int nkeys, int norderbys)

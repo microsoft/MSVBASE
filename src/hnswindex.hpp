@@ -47,6 +47,13 @@ extern "C"
                                   Relation index,
                                   IndexInfo *indexInfo);
 
+    bool hnsw_insert(Relation index,
+	Datum* values,
+	bool* isnull,
+	ItemPointer heap_tid,
+	Relation heapRelation,
+	IndexUniqueCheck checkUnique,
+	IndexInfo* indexInfo);
     /*
      * Prepare for an index scan
      */

@@ -49,27 +49,28 @@ void HNSWIndexScan::EndScan(
     resultIterator->Close();
 }
 
-bool HNSWIndexScan::Insert(Relation indexRelation,
+bool HNSWIndexScan::Insert(const std::string &p_path,
     Datum* values,
     bool* isnull,
     ItemPointer heap_tid,
-    Relation heapRelation,
     IndexUniqueCheck checkUnique,
-    IndexInfo* indexInfo)
+    int dim)
 {
     if (*isnull)
     {
         return true;
     }
 
+    Datum value = values[0];
+
     // retrieve array and perform some checks
     auto array = convert_array_to_vector(value);
-    if (static_cast<size_t>(m_numDimension) != array.size())
+    if (static_cast<size_t>(dim) != array.size())
     {
         ereport(ERROR,
             (errcode(ERRCODE_DATA_EXCEPTION),
                 errmsg("inconsistent array length, expected %d, found %ld",
-                    m_numDimension,
+                    dim,
                     array.size())));
     }
 
@@ -77,6 +78,6 @@ bool HNSWIndexScan::Insert(Relation indexRelation,
     std::int32_t offset = ItemPointerGetOffsetNumberNoCheck(heap_tid);
     std::uint64_t number = blockId;
     number = (number << 32) + offset;
-    vector_index->addPoint((char*)array.data(), number);
+    vector_index_map[p_path]->addPoint((char*)array.data(), number);
     return true;
 }

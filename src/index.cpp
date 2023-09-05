@@ -133,27 +133,6 @@ IndexBuildResult *sptag_build(Relation heap,
     return result;
 }
 
-bool hsnw_insert(Relation indexRelation,
-	Datum* values,
-	bool* isnull,
-	ItemPointer heap_tid,
-	Relation heapRelation,
-	IndexUniqueCheck checkUnique,
-	IndexInfo* indexInfo)
-{
-	std::string path = std::string(DataDir) + std::string("/") +
-		std::string(DatabasePath) + std::string("/") +
-		std::string(RelationGetRelationName(index));
-	IndexScan::LoadIndex(path);
-	return IndexScan::Insert(indexRelation,
-		values,
-		isnull,
-		heap_tid,
-		heapRelation,
-		checkUnique,
-		indexInfo);
-}
-
 IndexScanDesc sptag_begin_scan(Relation index, int nkeys, int norderbys)
 {
     std::string path = std::string(DataDir) + std::string("/") +
