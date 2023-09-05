@@ -89,7 +89,7 @@ Datum hnsw_handler(PG_FUNCTION_ARGS)
     amroutine->ambuild = hnsw_build;
     amroutine->ambuildempty = nullptr;     // TODO: index access method
     amroutine->aminsert = hnsw_insert;         // TODO: index access method
-    amroutine->ambulkdelete = nullptr;     // TODO: index access method
+    amroutine->ambulkdelete = hnsw_bulkdelete;     // TODO: index access method
     amroutine->amvacuumcleanup =
         hnsw_vacuumcleanup;
     amroutine->amcanreturn = nullptr;
@@ -174,6 +174,33 @@ bool hnsw_insert(Relation index,
 		heap_tid,
 		checkUnique,
 		dim);
+}
+
+IndexBulkDeleteResult* hnsw_bulkdelete(IndexVacuumInfo* info, IndexBulkDeleteResult* stats,
+        IndexBulkDeleteCallback callback, void* callback_state)
+{
+        Relation index = info->index;
+        std::string path = std::string(DataDir) + std::string("/") +
+                std::string(DatabasePath) + std::string("/") +
+                std::string(RelationGetRelationName(index));
+        int dim = hnsw_ParaGetDimension(index);
+        switch(hnsw_ParaGetDistmethod(index))
+        {
+            case hnsw_Inner_Product:
+                HNSWIndexScan::LoadIndex(path, DistanceMethod::InnerProduct, dim);
+                break;
+            case hnsw_L2_Distance:
+                HNSWIndexScan::LoadIndex(path, DistanceMethod::L2, dim);
+                break;
+            default:
+                elog(ERROR, "hnsw index parameter value error.");
+        }
+        return HNSWIndexScan::BulkDelete(path,
+                info,
+                stats,
+                callback,
+                callback_state);
+
 }
 
 IndexScanDesc hnsw_begin_scan(Relation index, int nkeys, int norderbys)

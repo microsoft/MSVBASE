@@ -81,3 +81,40 @@ bool HNSWIndexScan::Insert(const std::string &p_path,
     vector_index_map[p_path]->addPoint((char*)array.data(), number);
     return true;
 }
+
+IndexBulkDeleteResult*
+HNSWIndexScan::BulkDelete(const std::string& p_path,
+    IndexVacuumInfo* info,
+    IndexBulkDeleteResult* stats,
+    IndexBulkDeleteCallback callback,
+    void* callback_state)
+{
+    hnswlib::tableint id = 0;
+    std::uint64_t number;
+    while (true)
+    {
+        bool isValid = vector_index_map[p_path]->traverse(id, number);
+        if (isValid)
+        {
+            BlockNumber blkno = (std::uint32_t)(number >> 32);
+            OffsetNumber offset = (std::uint32_t)number;
+            ItemPointerData tid = {blkno, offset};
+            if (callback(&tid, callback_state))
+            {
+                vector_index_map[p_path]->markDelete(number);
+                stats->tuples_removed++;
+            }
+            else 
+            {
+                stats->num_index_tuples++;
+            }
+        }
+        else 
+        {
+            break;
+        }
+	id++;
+
+    }
+    return stats;
+}

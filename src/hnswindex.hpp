@@ -54,6 +54,9 @@ extern "C"
 	Relation heapRelation,
 	IndexUniqueCheck checkUnique,
 	IndexInfo* indexInfo);
+
+    IndexBulkDeleteResult* hnsw_bulkdelete(IndexVacuumInfo* info, IndexBulkDeleteResult* stats,
+        IndexBulkDeleteCallback callback, void* callback_state);
     /*
      * Prepare for an index scan
      */

@@ -48,6 +48,11 @@ public:
         ItemPointer heap_tid,
         IndexUniqueCheck checkUnique,
 	int dim);
+    static IndexBulkDeleteResult* BulkDelete(const std::string& p_path,
+            IndexVacuumInfo* info,
+            IndexBulkDeleteResult* stats,
+            IndexBulkDeleteCallback callback,
+            void* callback_state);
 
     static std::map<std::string, std::shared_ptr<hnswlib::SpaceInterface<float>>> distanceFunction_map;
     static std::map<std::string, std::shared_ptr<hnswlib::HierarchicalNSW<float>>> vector_index_map;
