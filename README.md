@@ -6,6 +6,7 @@ MSVBASE is a system that efficiently supports complex queries of both approximat
 ### **Clone and Patch**
 ```
 git clone https://github.com/microsoft/MSVBASE.git
+cd MSVBASE
 git submodule update --init --recursive
 ./scripts/patch.sh
 ```
@@ -38,6 +39,8 @@ insert into t_table values(3, 30, '{9,8,7,6,5,4,3,2,1,0}');
 create index t4_index on t_table using hnsw(m_vector_1) with(dimension=10,distmethod=l2_distance);
 set enable_seqscan=false;
 select id from t_table where price > 15 order by m_vector_1 <-> '{5,9,8,6,2,1,1,0,4,3}' limit 1;
+insert into t_table values(4, 40, '{19,18,17,16,15,14,13,12,11,10}');
+delete from t_table where id = 2;
 ```
 
 ## Contributing
