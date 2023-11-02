@@ -1,7 +1,7 @@
 # MSVBASE
 
 MSVBASE is a system that efficiently supports complex queries of both approximate similarity search and relational operators. It integrates high-dimensional vector indices into PostgreSQL, a relational database to facilitate complex approximate similarity queries.
-
+It is the implementation of the paper [VBASE: Unifying Online Vector Similarity Search and Relational Queries via Relaxed Monotonicity](https://www.usenix.org/system/files/osdi23-zhang-qianxi_1.pdf)
 ## **Build Docker**
 ### **Clone and Patch**
 ```
@@ -27,6 +27,34 @@ It is compatible with PostgreSQL syntax and protocols, supporting vector distanc
 docker exec -it --privileged --user=root vbase_open_source bash
 psql -U vectordb
 ```
+
+### **SQL syntax**
+* Currently, 'float array' is used to store vectors.
+```
+create table t_table(id int, price int, m_vector_1 float8[10], m_vector_2 float8[10]);
+```
+* When creating a vector index, it is necessary to specify the algorithm and the distance calculation method to be used.
+```
+create index vector_index_1 on t_table using hnsw(m_vector_1) with(dimension=10,distmethod=l2_distance);
+create index vector_index_2 on t_table using sptag(m_vector_2) with(dimension=10,distmethod=inner_product_distance);
+```
+* When calculating distances, the '<->' operator represents the L2 distance, while '<*>' represents the inner product distance.
+```
+select id from t_table where price > 15 order by m_vector_1 <-> '{5,9,8,6,2,1,1,0,4,3}' limit 10;
+select id from t_table where price > 15 order by m_vector_2 <*> '{5,9,8,6,2,1,1,0,4,3}' limit 5;
+```
+* It also supports distance threshold-based filtering queries. The query will retrieve vector data that is within the distance threshold.
+In the query, the '<<->>' operator represents the L2 distance, while '<<*>>' represents the inner product distance.
+The first element of the array represents the distance threshold.
+```
+select id from t_table where price > 15 and m_vector_1 <<->> '{30,5,9,8,6,2,1,1,0,4,3}';
+```
+* Multi-vector column query.
+```
+select id from t_table
+order by approximate_sum('0.5 * m_vector_1<->{5,9,8,6,2,1,1,0,4,3} + m_vector_2<*>{5,9,8,6,2,1,1,0,4,3}' ) limit 5;
+```
+
 ### **Example**
 ```
 create database test;
