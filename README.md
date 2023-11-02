@@ -54,8 +54,14 @@ select id from t_table where price > 15 and m_vector_1 <<->> '{30,5,9,8,6,2,1,1,
 select id from t_table
 order by approximate_sum('0.5 * m_vector_1<->{5,9,8,6,2,1,1,0,4,3} + m_vector_2<*>{5,9,8,6,2,1,1,0,4,3}' ) limit 5;
 ```
+* Join on vector similarity with threshold
+```
+select t_table.id as tid, d_table.id as did
+from t_table join d_table
+on t_table.m_vector_2 <<*>> array_cat(ARRAY[cast(10 as float8)], d_table.m_vector_2);
+```
 
-### **Example**
+* Example
 ```
 create database test;
 \c test;
