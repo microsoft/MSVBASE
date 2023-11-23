@@ -1,6 +1,7 @@
 # MSVBASE
 ## What's NEW
-New Research Paper [VBASE: Unifying Online Vector Similarity Search and Relational Queries via Relaxed Monotonicity](https://www.usenix.org/system/files/osdi23-zhang-qianxi_1.pdf) - _published in OSDI 2023_
+* New Research Paper [SPFresh: Incremental In-Place Update for Billion-Scale Vector Search](https://dl.acm.org/doi/10.1145/3600006.3613166) - _published in SOSP 2023_
+* New Research Paper [VBASE: Unifying Online Vector Similarity Search and Relational Queries via Relaxed Monotonicity](https://www.usenix.org/system/files/osdi23-zhang-qianxi_1.pdf) - _published in OSDI 2023_
 ## What's MSVBASE
 MSVBASE is a new system capable of efficiently serving complex online queries that involve both approximate similarity search and relational operators on scalar and vector data-sets. MSVBASE builds a unified query execution engine to support a wide range of queries both on scalar and vector data, and shows superior query performance and accuracy.
 It integrates high-dimensional vector indices into PostgreSQL with minimal code modifications.
