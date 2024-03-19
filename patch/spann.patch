@@ -66,6 +66,42 @@ index d79d57a..8442790 100644
      <ClCompile Include="src\Helper\Base64Encode.cpp">
        <Filter>Source Files\Helper</Filter>
      </ClCompile>
+diff --git a/AnnService/SSDServing.vcxproj b/AnnService/SSDServing.vcxproj
+index 5ff13c1..dd908d8 100644
+--- a/AnnService/SSDServing.vcxproj
++++ b/AnnService/SSDServing.vcxproj
+@@ -51,13 +51,13 @@
+     <CharacterSet>MultiByte</CharacterSet>
+   </PropertyGroup>
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+-    <ConfigurationType>StaticLibrary</ConfigurationType>
++    <ConfigurationType>Application</ConfigurationType>
+     <UseDebugLibraries>true</UseDebugLibraries>
+     <PlatformToolset>v142</PlatformToolset>
+     <CharacterSet>MultiByte</CharacterSet>
+   </PropertyGroup>
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+-    <ConfigurationType>StaticLibrary</ConfigurationType>
++    <ConfigurationType>Application</ConfigurationType>
+     <UseDebugLibraries>false</UseDebugLibraries>
+     <PlatformToolset>v142</PlatformToolset>
+     <WholeProgramOptimization>true</WholeProgramOptimization>
+@@ -111,6 +111,7 @@
+       <OpenMPSupport>true</OpenMPSupport>
+       <AdditionalOptions>/Zc:twoPhase- %(AdditionalOptions)</AdditionalOptions>
+       <LanguageStandard>stdcpp17</LanguageStandard>
++      <FunctionLevelLinking>true</FunctionLevelLinking>
+     </ClCompile>
+     <Link>
+       <SubSystem>Console</SubSystem>
+@@ -150,7 +151,6 @@
+   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+     <ClCompile>
+       <WarningLevel>Level3</WarningLevel>
+-      <FunctionLevelLinking>true</FunctionLevelLinking>
+       <IntrinsicFunctions>true</IntrinsicFunctions>
+       <SDLCheck>true</SDLCheck>
+       <PreprocessorDefinitions>_$(OutputType);_MBCS;_SCL_SECURE_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
 diff --git a/AnnService/inc/Core/BKT/Index.h b/AnnService/inc/Core/BKT/Index.h
 index f313134..5eac748 100644
 --- a/AnnService/inc/Core/BKT/Index.h
@@ -320,7 +356,7 @@ index 0000000..f7c6bca
 +#endif
 \ No newline at end of file
 diff --git a/AnnService/inc/Core/SPANN/ExtraFullGraphSearcher.h b/AnnService/inc/Core/SPANN/ExtraFullGraphSearcher.h
-index 12a3395..0c5d274 100644
+index 12a3395..f39608c 100644
 --- a/AnnService/inc/Core/SPANN/ExtraFullGraphSearcher.h
 +++ b/AnnService/inc/Core/SPANN/ExtraFullGraphSearcher.h
 @@ -101,6 +101,22 @@ namespace SPTAG
@@ -371,7 +407,7 @@ index 12a3395..0c5d274 100644
          template <typename ValueType>
          class ExtraFullGraphSearcher : public IExtraSearcher
          {
-@@ -339,6 +373,155 @@ namespace SPTAG
+@@ -339,6 +373,157 @@ namespace SPTAG
                  }
              }
  
@@ -444,6 +480,8 @@ index 12a3395..0c5d274 100644
 +                    }
 +#endif
 +#else // sync read
++                    auto& request = p_exWorkSpace->m_diskRequests[pi];
++                    request.m_payload = (void*)listInfo;
 +                    auto numRead = indexFile->ReadBinary(totalBytes, buffer, listInfo->listOffset);
 +                    if (numRead != totalBytes) {
 +                        LOG(Helper::LogLevel::LL_Error, "File %s read bytes, expected: %zu, acutal: %llu.\n", m_extraFullGraphFile.c_str(), totalBytes, numRead);
@@ -528,23 +566,27 @@ index 12a3395..0c5d274 100644
                  int postingListId,
                  size_t p_postingListSize,
 diff --git a/AnnService/inc/Core/SPANN/IExtraSearcher.h b/AnnService/inc/Core/SPANN/IExtraSearcher.h
-index 8db3f0f..7278d7c 100644
+index 8db3f0f..e6ce41e 100644
 --- a/AnnService/inc/Core/SPANN/IExtraSearcher.h
 +++ b/AnnService/inc/Core/SPANN/IExtraSearcher.h
-@@ -156,6 +156,12 @@ namespace SPTAG {
+@@ -156,6 +156,16 @@ namespace SPTAG {
  
              int m_spaceID;
  
++            int m_headOffset;
++
 +            uint32_t m_pi;
 +
 +            int m_offset;
 +
 +            bool m_loadPosting;
 +
++            bool m_inorder;
++
              static std::atomic_int g_spaceCount;
          };
  
-@@ -179,6 +185,16 @@ namespace SPTAG {
+@@ -179,6 +189,16 @@ namespace SPTAG {
                  std::set<int>* truth = nullptr,
                  std::map<int, std::set<int>>* found = nullptr) = 0;
  
@@ -561,7 +603,7 @@ index 8db3f0f..7278d7c 100644
              virtual bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, 
                  std::shared_ptr<VectorIndex> p_index, 
                  Options& p_opt) = 0;
-@@ -188,4 +204,4 @@ namespace SPTAG {
+@@ -188,4 +208,4 @@ namespace SPTAG {
      } // SPANN
  } // SPTAG
  
@@ -760,6 +802,28 @@ index 1989625..89d0d38 100644
      virtual const void* GetSample(const SizeType idx) const = 0;
      virtual bool ContainSample(const SizeType idx) const = 0;
      virtual bool NeedRefine() const = 0;
+diff --git a/AnnService/inc/Helper/AsyncFileReader.h b/AnnService/inc/Helper/AsyncFileReader.h
+index b4be277..58dbd1f 100644
+--- a/AnnService/inc/Helper/AsyncFileReader.h
++++ b/AnnService/inc/Helper/AsyncFileReader.h
+@@ -15,14 +15,14 @@
+ #include <thread>
+ #include <stdint.h>
+ 
+-#define ASYNC_READ 1
++//#define ASYNC_READ 1
+ 
+ #ifdef _MSC_VER
+ #include <tchar.h>
+ #include <Windows.h>
+-#define BATCH_READ 1
++//#define BATCH_READ 1
+ #else
+-#define BATCH_READ 1
++//#define BATCH_READ 1
+ #include <fcntl.h>
+ #include <sys/syscall.h>
+ #include <linux/aio_abi.h>
 diff --git a/AnnService/inc/Helper/ConcurrentSet.h b/AnnService/inc/Helper/ConcurrentSet.h
 index 1dfdf44..c436019 100644
 --- a/AnnService/inc/Helper/ConcurrentSet.h
@@ -772,8 +836,185 @@ index 1dfdf44..c436019 100644
  #include <shared_mutex>
  #include <unordered_set>
  #include <unordered_map>
+diff --git a/AnnService/inc/SSDServing/SSDIndex.h b/AnnService/inc/SSDServing/SSDIndex.h
+index 66b2492..29dc678 100644
+--- a/AnnService/inc/SSDServing/SSDIndex.h
++++ b/AnnService/inc/SSDServing/SSDIndex.h
+@@ -3,7 +3,7 @@
+ 
+ #pragma once
+ #include <limits>
+-
++#include "inc/Core/SPANNResultIterator.h"
+ #include "inc/Core/Common.h"
+ #include "inc/Core/Common/DistanceUtils.h"
+ #include "inc/Core/Common/QueryResultSet.h"
+@@ -106,7 +106,7 @@ namespace SPTAG {
+                 int p_maxQueryCount, int p_internalResultNum)
+             {
+                 int numQueries = min(static_cast<int>(p_results.size()), p_maxQueryCount);
+-
++                p_numThreads = 1;
+                 std::atomic_size_t queriesSent(0);
+ 
+                 std::vector<std::thread> threads;
+@@ -119,6 +119,9 @@ namespace SPTAG {
+                 {
+                     Utils::StopW threadws;
+                     size_t index = 0;
++		    numQueries=1000;
++		    double startTime = threadws.getElapsedMs();
++		                //        LOG(Helper::LogLevel::LL_Info, "Time: %f\n", endTime-startTime);
+                     while (true)
+                     {
+                         index = queriesSent.fetch_add(1);
+@@ -126,23 +129,30 @@ namespace SPTAG {
+                         {
+                             if ((index & ((1 << 14) - 1)) == 0)
+                             {
+-                                LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
++                           //     LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
+                             }
+-
++                            //LOG(Helper::LogLevel::LL_Info, "query: %d\n", index);
+                             double startTime = threadws.getElapsedMs();
+                             p_index->GetMemoryIndex()->SearchIndex(p_results[index]);
+                             double endTime = threadws.getElapsedMs();
+                             p_index->SearchDiskIndex(p_results[index], &(p_stats[index]));
+                             double exEndTime = threadws.getElapsedMs();
+-
+-                            p_stats[index].m_exLatency = exEndTime - endTime;
+-                            p_stats[index].m_totalLatency = p_stats[index].m_totalSearchLatency = exEndTime - startTime;
++			    LOG(Helper::LogLevel::LL_Info, "Time: %f, %f\n", endTime-startTime, exEndTime - endTime);
++                          //  for (int i = 1; i < p_results[index].GetResultNum(); i++) {
++                           //     LOG(Helper::LogLevel::LL_Info, "result: %d\n", p_results[index].GetResult(i)->VID);
++                           // }
++                            //exit(0);
++                           // p_stats[index].m_exLatency = exEndTime - endTime;
++                            //p_stats[index].m_totalLatency = p_stats[index].m_totalSearchLatency = exEndTime - startTime;
+                         }
+                         else
+                         {
+-                            return;
++                            //return;
++			    break;
+                         }
+                     }
++		    double endTime = threadws.getElapsedMs();
++		                        LOG(Helper::LogLevel::LL_Info, "Time: %f\n", endTime-startTime);
+                 };
+ 
+                 for (int i = 0; i < p_numThreads; i++) { threads.emplace_back(func); }
+@@ -159,6 +169,89 @@ namespace SPTAG {
+                 for (int i = 0; i < numQueries; i++) { p_results[i].CleanQuantizedTarget(); }
+             }
+ 
++
++            template <typename ValueType>
++            void SearchSequentialIterative(SPANN::Index<ValueType>* p_index,
++                int p_numThreads,
++                std::vector<QueryResult>& p_results,
++                std::vector<SPANN::SearchStats>& p_stats,
++                int p_maxQueryCount, int p_internalResultNum)
++            {
++                int numQueries = min(static_cast<int>(p_results.size()), p_maxQueryCount);
++                p_numThreads = 1;
++                std::atomic_size_t queriesSent(0);
++
++                std::vector<std::thread> threads;
++
++                LOG(Helper::LogLevel::LL_Info, "Searching: numThread: %d, numQueries: %d.\n", p_numThreads, numQueries);
++
++                Utils::StopW sw;
++
++                auto func = [&]()
++                {
++                    Utils::StopW threadws;
++                    size_t index = 0;
++		    numQueries = 1000;
++		    double startTime = threadws.getElapsedMs();
++                    while (true)
++                    {
++                        index = queriesSent.fetch_add(1);
++                        if (index < numQueries)
++                        {
++                            if ((index & ((1 << 14) - 1)) == 0)
++                            {
++                              //  LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
++                            }
++                            //LOG(Helper::LogLevel::LL_Info, "query: %d\n", index);
++                            std::shared_ptr<SPANN::SPANNResultIterator<ValueType>> iterator = p_index->GetSPANNIterator(p_results[index].GetTarget(), false, 32);
++                            bool hasNext = true;
++                            //int i = 0;
++                            while (hasNext) {
++                                BasicResult result;
++                                hasNext = iterator->Next(result);
++				//i++;
++                              //  LOG(Helper::LogLevel::LL_Info, "%d\n", i);
++                               // LOG(Helper::LogLevel::LL_Info, "Result: %d\n", result.VID);
++                                //if (i >= 958) break;
++                            }
++
++                            iterator->Close();
++                            //std::cout << "ending" << std::endl;
++                            //exit(0);
++                           // p_index->GetMemoryIndex()->SearchIndex(p_results[index]);
++                           // double endTime = threadws.getElapsedMs();
++                           // p_index->SearchDiskIndex(p_results[index], &(p_stats[index]));
++                           // double exEndTime = threadws.getElapsedMs();
++
++                          //  p_stats[index].m_exLatency = exEndTime - endTime;
++                          //  p_stats[index].m_totalLatency = p_stats[index].m_totalSearchLatency = exEndTime - startTime;
++                        }
++                        else
++                        {
++                            //return;
++			    break;
++                        }
++
++                    }
++		    double endTime = threadws.getElapsedMs();
++		    LOG(Helper::LogLevel::LL_Info, "Time: %f\n", endTime-startTime);
++                };
++
++                for (int i = 0; i < p_numThreads; i++) { threads.emplace_back(func); }
++                for (auto& thread : threads) { thread.join(); }
++                /*
++                double sendingCost = sw.getElapsedSec();
++                
++                LOG(Helper::LogLevel::LL_Info,
++                    "Finish sending in %.3lf seconds, actuallQPS is %.2lf, query count %u.\n",
++                    sendingCost,
++                    numQueries / sendingCost,
++                    static_cast<uint32_t>(numQueries));
++                    */
++                for (int i = 0; i < numQueries; i++) { p_results[i].CleanQuantizedTarget(); }
++            }
++
++
+             template <typename ValueType>
+             void Search(SPANN::Index<ValueType>* p_index)
+             {
+@@ -203,7 +296,7 @@ namespace SPTAG {
+                     }
+ 
+                     LOG(Helper::LogLevel::LL_Info, "Start warmup...\n");
+-                    SearchSequential(p_index, numThreads, warmupResults, warmpUpStats, p_opts.m_queryCountLimit, internalResultNum);
++                    SearchSequentialIterative(p_index, numThreads, warmupResults, warmpUpStats, p_opts.m_queryCountLimit, internalResultNum);
+                     LOG(Helper::LogLevel::LL_Info, "\nFinish warmup...\n");
+                 }
+ 
+@@ -229,7 +322,7 @@ namespace SPTAG {
+ 
+                 LOG(Helper::LogLevel::LL_Info, "Start ANN Search...\n");
+ 
+-                SearchSequential(p_index, numThreads, results, stats, p_opts.m_queryCountLimit, internalResultNum);
++                SearchSequentialIterative(p_index, numThreads, results, stats, p_opts.m_queryCountLimit, internalResultNum);
+ 
+                 LOG(Helper::LogLevel::LL_Info, "\nFinish ANN Search...\n");
+ 
 diff --git a/AnnService/src/Core/BKT/BKTIndex.cpp b/AnnService/src/Core/BKT/BKTIndex.cpp
-index f9ef95f..6f4f306 100644
+index f9ef95f..2298d9d 100644
 --- a/AnnService/src/Core/BKT/BKTIndex.cpp
 +++ b/AnnService/src/Core/BKT/BKTIndex.cpp
 @@ -3,6 +3,7 @@
@@ -841,7 +1082,7 @@ index f9ef95f..6f4f306 100644
  
          template <typename T>
          void Index<T>::SearchIndex(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space, bool p_searchDeleted, bool p_searchDuplicated) const
-@@ -271,6 +322,71 @@ namespace SPTAG
+@@ -271,6 +322,66 @@ namespace SPTAG
              }
          }
  
@@ -849,6 +1090,11 @@ index f9ef95f..6f4f306 100644
 +        void Index<T>::SearchIndexIterative(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space, bool p_isFirst, 
 +            int batch, bool p_searchDeleted, bool p_searchDuplicated) const
 +        {
++            if (m_pQuantizer && !p_query.HasQuantizedTarget())
++            {
++                p_query.SetTarget(p_query.GetTarget(), m_pQuantizer);
++            }
++
 +            if (m_deletedID.Count() == 0 || p_searchDeleted)
 +            {
 +                SearchIterative(;, p_isFirst, batch)
@@ -867,34 +1113,24 @@ index f9ef95f..6f4f306 100644
 +		        p_space->ResetResult(m_iMaxCheck, p_query.GetResultNum());
 +                SearchIndex(*((COMMON::QueryResultSet<T>*) & p_query), *p_space, p_searchDeleted, true);
 +                // make sure other node can be traversed after topk found 
-+		p_space->nodeCheckStatus.clear();
++		        p_space->nodeCheckStatus.clear();
++                p_space->m_NGQueue.clear();
 +                for (int i = 0; i < p_query.GetResultNum(); ++i)
 +                {
 +                    SizeType result = p_query.GetResult(i)->VID;
 +                    if (result < 0)
 +                        continue;
 +                    p_space->nodeCheckStatus.CheckAndSet(result);
-+                    const DimensionType checkPos = m_pGraph.m_iNeighborhoodSize - 1;
-+                    const SizeType* node = m_pGraph[result];
-+                    _mm_prefetch((const char*)node, _MM_HINT_T0);
-+                    for (DimensionType i = 0; i <= checkPos; i++) {
-+                        _mm_prefetch((const char*)(m_pSamples)[node[i]], _MM_HINT_T0);
-+                    }
-+                    for (DimensionType i = 0; i <= checkPos; i++) {
-+                        SizeType nn_index = node[i];
-+                        if (nn_index < 0) break;
-+                        if (p_space->CheckAndSet(nn_index)) continue;
-+                        float distance2leaf = m_fComputeDistance((const T*)p_query.GetQuantizedTarget(), (m_pSamples)[nn_index], GetFeatureDim());
-+                        p_space->m_NGQueue.insert(NodeDistPair(nn_index, distance2leaf));
-+                    }
++                    float distance2leaf = m_fComputeDistance((const T*)p_query.GetQuantizedTarget(), (m_pSamples)[result], GetFeatureDim());
++                    p_space->m_NGQueue.insert(NodeDistPair(result, distance2leaf));
 +                }
 +		
 +            }
-+            else 
-+            {
-+                p_space->ResetResult(m_iMaxCheck, p_query.GetResultNum());
-+                SearchIndexIterative(*((COMMON::QueryResultSet<T>*) & p_query), *p_space, p_isFirst, p_query.GetResultNum(), p_searchDeleted, true);
-+            }
++            p_isFirst = false;
++            p_query.Reset();
++            p_space->ResetResult(m_iMaxCheck, p_query.GetResultNum());
++            SearchIndexIterative(*((COMMON::QueryResultSet<T>*) & p_query), *p_space, p_isFirst, p_query.GetResultNum(), p_searchDeleted, true);
++            
 +            if (p_query.GetResult(0) == nullptr || p_query.GetResult(0)->VID < 0)
 +            {
 +                return false;
@@ -913,7 +1149,7 @@ index f9ef95f..6f4f306 100644
          template<typename T>
          ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool p_searchDeleted) const
          {
-@@ -282,7 +398,38 @@ namespace SPTAG
+@@ -282,7 +393,38 @@ namespace SPTAG
              SearchIndex(*((COMMON::QueryResultSet<T>*)&p_query), *workSpace, p_searchDeleted, true);
  
              m_workSpacePool->Return(workSpace);
@@ -952,7 +1188,7 @@ index f9ef95f..6f4f306 100644
              if (p_query.WithMeta() && nullptr != m_pMetadata)
              {
                  for (int i = 0; i < p_query.GetResultNum(); ++i)
-@@ -294,6 +441,23 @@ namespace SPTAG
+@@ -294,6 +436,23 @@ namespace SPTAG
              return ErrorCode::Success;
          }
  
@@ -1330,7 +1566,7 @@ index 0000000..6075334
 +
 +} // namespace SPTAG
 diff --git a/AnnService/src/Core/SPANN/SPANNIndex.cpp b/AnnService/src/Core/SPANN/SPANNIndex.cpp
-index 5b7e7c8..fb24022 100644
+index 5b7e7c8..2f3fab5 100644
 --- a/AnnService/src/Core/SPANN/SPANNIndex.cpp
 +++ b/AnnService/src/Core/SPANN/SPANNIndex.cpp
 @@ -5,7 +5,8 @@
@@ -1343,7 +1579,18 @@ index 5b7e7c8..fb24022 100644
  #pragma warning(disable:4242)  // '=' : conversion from 'int' to 'short', possible loss of data
  #pragma warning(disable:4244)  // '=' : conversion from 'int' to 'short', possible loss of data
  #pragma warning(disable:4127)  // conditional expression is constant
-@@ -252,6 +253,102 @@ namespace SPTAG
+@@ -109,9 +110,8 @@ namespace SPTAG
+         template <typename T>
+         ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
+         {
+-            m_index->SetQuantizer(m_pQuantizer);
+             if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success) return ErrorCode::Fail;
+-
++            m_index->SetQuantizer(m_pQuantizer);
+             m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+             //m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
+             //m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
+@@ -252,6 +252,129 @@ namespace SPTAG
              return ErrorCode::Success;
          }
  
@@ -1355,25 +1602,52 @@ index 5b7e7c8..fb24022 100644
 +            bool first) const
 +        {
 +            if (!m_bReady) return ErrorCode::EmptyIndex;
-+
 +            COMMON::QueryResultSet<T>* p_headQueryResults = (COMMON::QueryResultSet<T>*) & p_headQuery;
 +            COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
-+           
++            if (m_pQuantizer && !p_queryResults->HasQuantizedTarget())
++            {
++                p_queryResults->SetTarget(p_queryResults->GetTarget(), m_pQuantizer);
++            }
 +            if (first) {
 +                p_headQueryResults->Reset();
 +                m_index->SearchIndexIterativeFromNeareast(*p_headQueryResults, p_indexWorkspace, true);
-+		p_extraWorkspace->m_loadPosting = true;
++		        p_extraWorkspace->m_loadPosting = true;
++                p_extraWorkspace->m_headOffset = 0;
++                p_extraWorkspace->m_inorder = false;
 +            }
 +
 +            bool continueSearch = true;
++  
 +            while (continueSearch) {
++                if (p_extraWorkspace->m_headOffset < p_headQuery.GetResultNum())
++                {
++                    SPTAG::BasicResult* res = p_headQuery.GetResult(p_extraWorkspace->m_headOffset);
++                    p_extraWorkspace->m_headOffset++;
++                    if (res->VID != -1) {
++                        SizeType id = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
++                        if (id != MaxSize)
++                        {
++                            continueSearch = false;
++                            p_query.SetResult(0, id, res->Dist);
++                            break;
++                        }
++                    }
++                }
 +                bool found = SearchDiskIndexIterative(p_headQuery, p_query, p_extraWorkspace);
 +                p_extraWorkspace->m_loadPosting = false;
 +                if (!found)
 +                {
++                    if (!p_extraWorkspace->m_inorder)
++                    {
++                        p_extraWorkspace->m_inorder = true;
++                        p_query.SetResult(0, -2, MaxDist);
++                        break;
++                    }
 +                    p_headQueryResults->Reset();
 +                    continueSearch = m_index->SearchIndexIterativeFromNeareast(*p_headQueryResults, p_indexWorkspace, false);
 +                    p_extraWorkspace->m_loadPosting = true;
++                    p_extraWorkspace->m_headOffset = 0;
++                    continue;
 +                }
 +                else
 +                    break;
@@ -1446,7 +1720,20 @@ index 5b7e7c8..fb24022 100644
          template <typename T>
          ErrorCode Index<T>::SearchDiskIndex(QueryResult& p_query, SearchStats* p_stats) const
          {
-@@ -299,6 +396,50 @@ namespace SPTAG
+@@ -272,12 +395,6 @@ namespace SPTAG
+                 {
+                     workSpace->m_postingIDs.emplace_back(res->VID);
+                 }
+-                res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+-                if (res->VID == MaxSize) 
+-                {
+-                    res->VID = -1;
+-                    res->Dist = MaxDist;
+-                }
+             }
+ 
+             for (; i < p_queryResults->GetResultNum(); ++i)
+@@ -299,6 +416,50 @@ namespace SPTAG
              return ErrorCode::Success;
          }
  
@@ -1571,7 +1858,51 @@ index 0000000..a5166bb
 +	} // namespace SPANN
 +} // namespace SPTAG
 +*/
+diff --git a/AnnService/src/Core/VectorIndex.cpp b/AnnService/src/Core/VectorIndex.cpp
+index f465231..8a57a88 100644
+--- a/AnnService/src/Core/VectorIndex.cpp
++++ b/AnnService/src/Core/VectorIndex.cpp
+@@ -617,6 +617,7 @@ VectorIndex::LoadIndex(const std::string& p_loaderFilePath, std::shared_ptr<Vect
+     }
+     if (iniReader.DoesSectionExist("Quantizer")) {
+         indexfiles->push_back(p_vectorIndex->m_sQuantizerFile);
++        p_vectorIndex->LoadQuantizer(folderPath + p_vectorIndex->m_sQuantizerFile);
+     }
+     std::vector<std::shared_ptr<Helper::DiskIO>> handles;
+     for (std::string& f : *indexfiles) {
+@@ -648,10 +649,12 @@ VectorIndex::LoadIndex(const std::string& p_loaderFilePath, std::shared_ptr<Vect
+         }
+         metaStart += 2;
+     }
++    /*
+     if (iniReader.DoesSectionExist("Quantizer")) {
+         p_vectorIndex->SetQuantizer(SPTAG::COMMON::IQuantizer::LoadIQuantizer(handles[metaStart]));
+         if (!p_vectorIndex->m_pQuantizer) return ErrorCode::FailedParseValue;
+     }
++    */
+     p_vectorIndex->m_bReady = true;
+     return ErrorCode::Success;
+ }
+diff --git a/AnnService/src/SSDServing/main.cpp b/AnnService/src/SSDServing/main.cpp
+index 1c39ca4..cebd6f0 100644
+--- a/AnnService/src/SSDServing/main.cpp
++++ b/AnnService/src/SSDServing/main.cpp
+@@ -181,13 +181,14 @@ namespace SPTAG {
+ #ifdef _exe
  
+ int main(int argc, char* argv[]) {
++	/*
+ 	if (argc < 2)
+ 	{
+ 		LOG(Helper::LogLevel::LL_Error,
+ 			"ssdserving configFilePath\n");
+ 		exit(-1);
+ 	}
+-
++	*/
+ 	std::map<std::string, std::map<std::string, std::string>> my_map;
+ 	auto ret = SSDServing::BootProgram(false, &my_map, argv[1]);
+ 	return ret;
 diff --git a/Test/Test.vcxproj b/Test/Test.vcxproj
 index 8c93771..10c8f2a 100644
 --- a/Test/Test.vcxproj
