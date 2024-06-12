@@ -46,7 +46,7 @@ copy t_table from 'your_data_path.tsv' DELIMITER E'\t' csv quote e'\x01';
 * When creating a vector index, it is necessary to specify the algorithm and the distance calculation method to be used.
 ```
 create index vector_index_1 on t_table using hnsw(vector_1) with(dimension=10,distmethod=l2_distance);
-create index vector_index_2 on t_table using sptag(vector_2) with(dimension=10,distmethod=inner_product_distance);
+create index vector_index_2 on t_table using sptag(vector_2 vector_inner_product_ops) with(distmethod=inner_product);
 ```
 * **TopK**. When calculating distances, the '<->' operator represents the L2 distance, while '<*>' represents the inner product distance.
 ```
