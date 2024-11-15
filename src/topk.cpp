@@ -552,6 +552,18 @@ void EndFaginsState(FaginsState *state){
 	return;
 }
 
+void parseVectorConstant(std::string &src) {
+	std::size_t brace_search_pos = 0;
+	while ((brace_search_pos = src.find("{", brace_search_pos)) != std::string::npos) {
+		src.replace(brace_search_pos, 1, "\'{");
+		brace_search_pos += 2;
+	}
+	brace_search_pos = 0;
+	while ((brace_search_pos = src.find("}", brace_search_pos)) != std::string::npos) {
+		src.replace(brace_search_pos, 1, "}\'");
+		++brace_search_pos;
+	}
+}
 
 Datum topk(PG_FUNCTION_ARGS) {
 
@@ -600,14 +612,16 @@ Datum topk(PG_FUNCTION_ARGS) {
 
 		std::string rank_exp(text_to_cstring(rank_expression_text));
 		// DEBUG_PRINT("Setting Rank_exp %lu", rank_exp.size());
-		if ( rank_exp.size() == 0 ){
+		if (rank_exp.size() == 0) {
 			int sz = orderby_expressions.size();
-			for ( int i = 0; i < sz; i++ ) {
+			for (int i = 0; i < sz; i++) {
 				std::string orderby = orderby_expressions[i];
-				rank_exp+=("("+orderby+")");
-				if ( i < sz-1 ) rank_exp+=" + ";
+				rank_exp += ("(" + orderby + ")");
+				if (i < sz - 1) rank_exp += " + ";
 			}
 		}
+
+		parseVectorConstant(rank_exp);
 
 		DEBUG_PRINT("RANK Expresion = %s", rank_exp.c_str());
 		
@@ -616,20 +630,20 @@ Datum topk(PG_FUNCTION_ARGS) {
 		SPI_connect();
 
 		// prepare sql plans, each contain the corresponding index scan execution node for the orderby expression.
-		for ( std::string exp : orderby_expressions) {
+		for (std::string exp : orderby_expressions) {
+			parseVectorConstant(exp);
 			DEBUG_PRINT("Prepare IndexScan node for orderby_expresion: %s ", exp.c_str());
 		
 			char sourceText[102400];
 
-			if (orderby_expressions.size() == 1)
-			{
-				if ( strlen(text_to_cstring(filter_exp_text)) == 0){
+			if (orderby_expressions.size() == 1) {
+				if (strlen(text_to_cstring(filter_exp_text)) == 0) {
 					snprintf(sourceText, sizeof(sourceText), "select %s from %s order by %s",  text_to_cstring(attr_exp_text), text_to_cstring(tablename), exp.c_str());
 				} else {
 					snprintf(sourceText, sizeof(sourceText), "select %s from %s where %s order by %s", text_to_cstring(attr_exp_text), text_to_cstring(tablename), text_to_cstring(filter_exp_text), exp.c_str());
 				}
-			} else{
-				if ( strlen(text_to_cstring(filter_exp_text)) == 0){
+			} else {
+				if (strlen(text_to_cstring(filter_exp_text)) == 0) {
 					snprintf(sourceText, sizeof(sourceText), "select %s, %s from %s order by %s",  text_to_cstring(attr_exp_text), rank_exp.c_str(), text_to_cstring(tablename), exp.c_str());
 				} else {
 					snprintf(sourceText, sizeof(sourceText), "select %s, %s from %s where %s order by %s", text_to_cstring(attr_exp_text), rank_exp.c_str(), text_to_cstring(tablename), text_to_cstring(filter_exp_text), exp.c_str());
@@ -638,7 +652,7 @@ Datum topk(PG_FUNCTION_ARGS) {
 
 			PlannedStmt* plan = NULL;
 		
-			if ( !(plan = extractIndexScanNode(sourceText)) ){
+			if (!(plan = extractIndexScanNode(sourceText))){
 				elog(ERROR, "cannot find index for order by expr = %s", sourceText);
 			}
 
